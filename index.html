@@ -71,6 +71,9 @@ table.data-table tr:hover{background:#eef2f7}
 #qr-reader{min-height:250px}
 #qr-reader video{border-radius:8px}
 .scanner-status{text-align:center;padding:10px;font-size:13px;color:#888}
+.debug-text{background:#f8f8f8;border:1px solid #eee;border-radius:6px;padding:10px;font-size:11px;text-align:left;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;font-family:inherit;line-height:1.55;color:#444;margin:8px 0}
+.date-input-row{display:flex;gap:6px;align-items:center;margin:10px 0;justify-content:center}
+.date-input-row input{width:60px;padding:6px;border:1px solid #ccc;border-radius:4px;text-align:center;font-size:14px}
 @media(max-width:600px){
   .container{padding:8px}
   .card{padding:12px}
@@ -150,14 +153,12 @@ table.data-table tr:hover{background:#eef2f7}
   <div class="modal-card">
     <h3>&#x1F4F7; QRコード読み取り</h3>
     <div class="scan-methods">
-      <!-- ファイルから読み取り（iOSでも安定） -->
       <div class="file-upload-area" id="file-upload-area" onclick="document.getElementById('qr-file-input').click()">
         <div class="icon">&#x1F4F1;</div>
         <div class="label">タップしてQRコード画像を選択<br><small>（カメラ撮影 or ライブラリ）</small></div>
         <input type="file" id="qr-file-input" accept="image/*" capture="environment" onchange="onFileSelected(event)">
       </div>
       <div class="or-divider">または</div>
-      <!-- ライブカメラスキャン -->
       <button class="btn btn-primary" onclick="startLiveCamera()" id="live-camera-btn" style="width:100%;justify-content:center">&#x1F3A5; ライブカメラでスキャン</button>
       <div id="qr-reader"></div>
       <div class="scanner-status" id="scanner-status"></div>
@@ -183,6 +184,30 @@ table.data-table tr:hover{background:#eef2f7}
   </div>
 </div>
 
+<!-- Date Fix Modal (when date parsing fails) -->
+<div class="modal hidden" id="datefix-modal">
+  <div class="modal-card">
+    <h3>&#x26A0;&#xFE0F; 日付が読み取れませんでした</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:6px">QRコード内の日付が空欄、または認識できない形式です。<br>日付を入力して登録するか、キャンセルしてください。</p>
+    <div class="date-input-row">
+      <input type="number" id="fix-year" placeholder="年" min="2020" max="2099">
+      <span>/</span>
+      <input type="number" id="fix-month" placeholder="月" min="1" max="12">
+      <span>/</span>
+      <input type="number" id="fix-day" placeholder="日" min="1" max="31">
+      <button class="btn btn-sm btn-secondary" onclick="fillToday()">今日</button>
+    </div>
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#888">読み取られたQRテキストを確認</summary>
+      <pre class="debug-text" id="datefix-rawtext"></pre>
+    </details>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="cancelDateFix()">キャンセル</button>
+      <button class="btn btn-primary" onclick="submitDateFix()">この日付で登録</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -194,26 +219,50 @@ function loadData() {
 }
 function saveData(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
-function parseQrText(text) {
-  var d = {};
-  var dateM = text.match(/\u65e5\u4ed8[\uff1a:]\s*(\d{2,4})\/?-?(\d{1,2})\/?-?(\d{1,2})/);
-  if (dateM) {
-    var y = parseInt(dateM[1]); if (y < 100) y += 2000;
-    var m = parseInt(dateM[2]), day = parseInt(dateM[3]);
-    d.date = y + '/' + String(m).padStart(2,'0') + '/' + String(day).padStart(2,'0');
-    d.sortKey = y * 10000 + m * 100 + day;
+// 全角数字 → 半角
+function normalizeText(text) {
+  return text.replace(/[\uFF10-\uFF19]/g, function(c){ return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+}
+
+function parseDate(text) {
+  // 様々な区切り文字（/, -, 年月日, 全角スラッシュ）に対応
+  // 例: 2026/5/9, 2026-5-9, 2026年5月9日, 26/5/9
+  var patterns = [
+    /\u65e5\u4ed8\s*[\uff1a:]\s*(\d{2,4})\s*[\/\-\uFF0F\u5e74\.]\s*(\d{1,2})\s*[\/\-\uFF0F\u6708\.]\s*(\d{1,2})/,
+    /(\d{4})\s*[\/\-\uFF0F\u5e74\.]\s*(\d{1,2})\s*[\/\-\uFF0F\u6708\.]\s*(\d{1,2})/
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var m = text.match(patterns[i]);
+    if (m) {
+      var y = parseInt(m[1]); if (y < 100) y += 2000;
+      var mo = parseInt(m[2]), da = parseInt(m[3]);
+      if (y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+        return {
+          date: y + '/' + String(mo).padStart(2,'0') + '/' + String(da).padStart(2,'0'),
+          sortKey: y * 10000 + mo * 100 + da
+        };
+      }
+    }
   }
-  var nameM = text.match(/\u6c0f\u540d[\uff1a:]\s*(.+)/);
+  return null;
+}
+
+function parseQrText(text) {
+  text = normalizeText(text);
+  var d = {};
+  var dateRes = parseDate(text);
+  if (dateRes) { d.date = dateRes.date; d.sortKey = dateRes.sortKey; }
+  var nameM = text.match(/\u6c0f\u540d\s*[\uff1a:]\s*(.+)/);
   if (nameM) d.name = nameM[1].trim().replace(/^-$/, '');
-  var docM = text.match(/\u62c5\u5f53\u533b[\uff1a:]\s*(.+)/);
+  var docM = text.match(/\u62c5\u5f53\u533b\s*[\uff1a:]\s*(.+)/);
   if (docM) d.doctor = docM[1].trim().replace(/^-$/, '');
-  var mhdM = text.match(/\u982d\u75db\u304c\u3042\u3063\u305f\u65e5[\uff1a:]?\s*(?:\u7d04)?(\d+)\s*\u65e5/);
+  var mhdM = text.match(/\u982d\u75db\u304c\u3042\u3063\u305f\u65e5\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
   if (mhdM) d.mhd = parseInt(mhdM[1]);
-  var mmdM = text.match(/\u75db\u307f\u6b62\u3081(?:\u3092)?\u670d\u7528(?:\u3057\u305f)?\u65e5[\uff1a:]?\s*(?:\u7d04)?(\d+)\s*\u65e5/);
+  var mmdM = text.match(/\u75db\u307f\u6b62\u3081(?:\u3092)?\u670d\u7528(?:\u3057\u305f)?\u65e5\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
   if (mmdM) d.mmd = parseInt(mmdM[1]);
-  var ncM = text.match(/\u30b9\u30c3\u30ad\u30ea\u305b\u305a[\uff1a:]?\s*(?:\u7d04)?(\d+)\s*\u65e5/);
+  var ncM = text.match(/\u30b9\u30c3\u30ad\u30ea\u305b\u305a\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
   if (ncM) d.notClearDays = parseInt(ncM[1]);
-  var clM = text.match(/\u30b9\u30c3\u30ad\u30ea[\uff1a:]?\s*(?:\u7d04)?(\d+)\s*\u65e5/);
+  var clM = text.match(/\u30b9\u30c3\u30ad\u30ea\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
   if (clM) d.clearDays = parseInt(clM[1]);
   var hit6M = text.match(/\u3010HIT-6\u3011\s*(\d+)\u70b9\s*(\S+)/);
   if (hit6M) { d.hit6 = parseInt(hit6M[1]); d.hit6Verdict = hit6M[2]; }
@@ -221,9 +270,9 @@ function parseQrText(text) {
   var mibs4M = text.match(/\u3010MIBS-4\u3011\s*(\d+)\u70b9\s*(\S+)/);
   if (mibs4M) { d.mibs4 = parseInt(mibs4M[1]); d.mibs4Verdict = mibs4M[2]; }
   else if (text.match(/\u3010MIBS-4\u3011\s*\u672a\u5b8c/)) { d.mibs4 = null; }
-  var hit6A = text.match(/\u3010HIT-6\u3011[^\n]*\n\u56de\u7b54[\uff1a:]\s*([0-9,\-]+)/);
+  var hit6A = text.match(/\u3010HIT-6\u3011[^\n]*\n\u56de\u7b54\s*[\uff1a:]\s*([0-9,\-]+)/);
   if (hit6A) d.hit6Answers = hit6A[1];
-  var mibs4A = text.match(/\u3010MIBS-4\u3011[^\n]*\n\u56de\u7b54[\uff1a:]\s*([0-9,\-]+)/);
+  var mibs4A = text.match(/\u3010MIBS-4\u3011[^\n]*\n\u56de\u7b54\s*[\uff1a:]\s*([0-9,\-]+)/);
   if (mibs4A) d.mibs4Answers = mibs4A[1];
   var noteM = text.match(/\u3010\u5099\u8003\u3011\s*([\s\S]*)/);
   if (noteM) d.note = noteM[1].trim();
@@ -247,7 +296,7 @@ function openScanner() {
 function startLiveCamera() {
   if (scannerRunning) return;
   var statusEl = document.getElementById('scanner-status');
-  statusEl.textContent = '\u30ab\u30e1\u30e9\u3092\u8d77\u52d5\u4e2d...';
+  statusEl.textContent = 'カメラを起動中...';
   document.getElementById('live-camera-btn').style.display = 'none';
 
   html5QrCode = new Html5Qrcode('qr-reader');
@@ -264,12 +313,12 @@ function startLiveCamera() {
     function onError() {}
   ).then(function() {
     scannerRunning = true;
-    statusEl.textContent = 'QR\u30b3\u30fc\u30c9\u3092\u304b\u3056\u3057\u3066\u304f\u3060\u3055\u3044';
+    statusEl.textContent = 'QRコードをかざしてください';
   }).catch(function(err) {
     scannerRunning = false;
-    statusEl.textContent = '\u30ab\u30e1\u30e9\u3092\u8d77\u52d5\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u753b\u50cf\u9078\u629e\u3092\u304a\u4f7f\u3044\u304f\u3060\u3055\u3044\u3002';
+    statusEl.textContent = 'カメラを起動できませんでした。画像選択をお使いください。';
     document.getElementById('live-camera-btn').style.display = '';
-    document.getElementById('live-camera-btn').textContent = '\u2757 \u30ab\u30e1\u30e9\u8d77\u52d5\u5931\u6557 - \u518d\u8a66\u884c';
+    document.getElementById('live-camera-btn').textContent = '❗ カメラ起動失敗 - 再試行';
     console.error('Camera start error:', err);
   });
 }
@@ -303,12 +352,11 @@ function closeScanner() {
   });
 }
 
-// ===== File-based QR reading (iOS-safe) =====
 function onFileSelected(event) {
   var file = event.target.files[0];
   if (!file) return;
   var statusEl = document.getElementById('scanner-status');
-  statusEl.textContent = '\u753b\u50cf\u3092\u89e3\u6790\u4e2d...';
+  statusEl.textContent = '画像を解析中...';
 
   var reader = new Html5Qrcode('qr-reader-file-tmp');
   reader.scanFile(file, true)
@@ -318,13 +366,12 @@ function onFileSelected(event) {
       addRecord(decodedText);
     })
     .catch(function(err) {
-      statusEl.textContent = 'QR\u30b3\u30fc\u30c9\u3092\u8aad\u307f\u53d6\u308c\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u518d\u5ea6\u64ae\u5f71\u3057\u3066\u304f\u3060\u3055\u3044\u3002';
+      statusEl.textContent = 'QRコードを読み取れませんでした。再度撮影してください。';
       console.error('File scan error:', err);
     });
   event.target.value = '';
 }
 
-// ===== Manual Input =====
 function openManualInput() {
   document.getElementById('manual-text').value = '';
   document.getElementById('manual-modal').classList.remove('hidden');
@@ -334,23 +381,65 @@ function closeManualInput() {
 }
 function submitManualInput() {
   var text = document.getElementById('manual-text').value.trim();
-  if (!text) { showToast('\u30c6\u30ad\u30b9\u30c8\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044', 'error'); return; }
+  if (!text) { showToast('テキストを入力してください', 'error'); return; }
   closeManualInput();
   addRecord(text);
 }
 
-// ===== Add Record =====
+// ===== Date Fix Modal =====
+var pendingRecord = null;
+function openDateFix(rec, rawText) {
+  pendingRecord = rec;
+  document.getElementById('datefix-rawtext').textContent = rawText || '(空)';
+  document.getElementById('fix-year').value = '';
+  document.getElementById('fix-month').value = '';
+  document.getElementById('fix-day').value = '';
+  document.getElementById('datefix-modal').classList.remove('hidden');
+}
+function fillToday() {
+  var t = new Date();
+  document.getElementById('fix-year').value = t.getFullYear();
+  document.getElementById('fix-month').value = t.getMonth() + 1;
+  document.getElementById('fix-day').value = t.getDate();
+}
+function cancelDateFix() {
+  pendingRecord = null;
+  document.getElementById('datefix-modal').classList.add('hidden');
+}
+function submitDateFix() {
+  var y = parseInt(document.getElementById('fix-year').value);
+  var m = parseInt(document.getElementById('fix-month').value);
+  var d = parseInt(document.getElementById('fix-day').value);
+  if (!y || !m || !d || y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) {
+    showToast('正しい日付を入力してください', 'error'); return;
+  }
+  if (!pendingRecord) return;
+  pendingRecord.date = y + '/' + String(m).padStart(2,'0') + '/' + String(d).padStart(2,'0');
+  pendingRecord.sortKey = y * 10000 + m * 100 + d;
+  document.getElementById('datefix-modal').classList.add('hidden');
+  saveRecord(pendingRecord);
+  pendingRecord = null;
+}
+
 function addRecord(text) {
-  if (text.indexOf('\u982d\u75db\u30c1\u30a7\u30c3\u30af\u30b7\u30fc\u30c8') < 0 && text.indexOf('HIT-6') < 0 && text.indexOf('MIBS-4') < 0) {
-    showToast('\u982d\u75db\u30c1\u30a7\u30c3\u30af\u30b7\u30fc\u30c8\u306eQR\u3067\u306f\u3042\u308a\u307e\u305b\u3093', 'error');
+  if (text.indexOf('頭痛チェックシート') < 0 && text.indexOf('HIT-6') < 0 && text.indexOf('MIBS-4') < 0) {
+    showToast('頭痛チェックシートのQRではありません', 'error');
     return;
   }
   var rec = parseQrText(text);
-  if (!rec.date) { showToast('\u65e5\u4ed8\u3092\u8aad\u307f\u53d6\u308c\u307e\u305b\u3093\u3067\u3057\u305f', 'error'); return; }
+  if (!rec.date) {
+    // 日付が読めなかった → 入力ダイアログを開く
+    openDateFix(rec, text);
+    return;
+  }
+  saveRecord(rec);
+}
+
+function saveRecord(rec) {
   var data = loadData();
   var dup = data.find(function(r){ return r.date === rec.date && r.name === rec.name; });
   if (dup) {
-    if (!confirm(rec.date + ' ' + (rec.name||'') + ' \u306e\u30c7\u30fc\u30bf\u306f\u65e2\u306b\u5b58\u5728\u3057\u307e\u3059\u3002\u4e0a\u66f8\u304d\u3057\u307e\u3059\u304b\uff1f')) return;
+    if (!confirm(rec.date + ' ' + (rec.name||'') + ' のデータは既に存在します。上書きしますか？')) return;
     var idx = data.indexOf(dup);
     data[idx] = rec;
   } else {
@@ -358,31 +447,30 @@ function addRecord(text) {
   }
   data.sort(function(a,b){ return (a.sortKey||0) - (b.sortKey||0); });
   saveData(data);
-  showToast(rec.date + ' \u306e\u30c7\u30fc\u30bf\u3092\u767b\u9332\u3057\u307e\u3057\u305f', 'success');
+  showToast(rec.date + ' のデータを登録しました', 'success');
   refreshAll();
 }
 
 function deleteRecord(id) {
-  if (!confirm('\u3053\u306e\u30ec\u30b3\u30fc\u30c9\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f')) return;
+  if (!confirm('このレコードを削除しますか？')) return;
   var data = loadData().filter(function(r){ return r.id !== id; });
   saveData(data);
   refreshAll();
-  showToast('\u524a\u9664\u3057\u307e\u3057\u305f', 'warn');
+  showToast('削除しました', 'warn');
 }
 
 function clearAllData() {
-  if (!confirm('\u5168\u30c7\u30fc\u30bf\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f\u3053\u306e\u64cd\u4f5c\u306f\u53d6\u308a\u6d88\u305b\u307e\u305b\u3093\u3002')) return;
+  if (!confirm('全データを削除しますか？この操作は取り消せません。')) return;
   saveData([]);
   refreshAll();
-  showToast('\u5168\u30c7\u30fc\u30bf\u3092\u524a\u9664\u3057\u307e\u3057\u305f', 'warn');
+  showToast('全データを削除しました', 'warn');
 }
 
-// ===== Filter =====
 function getFilteredData() {
   var data = loadData();
   var sel = document.getElementById('patient-select').value;
   if (sel === '__all__') return data;
-  return data.filter(function(r){ return (r.name || '\u4e0d\u660e') === sel; });
+  return data.filter(function(r){ return (r.name || '不明') === sel; });
 }
 
 function applyFilter() { refreshAll(); }
@@ -390,11 +478,11 @@ function applyFilter() { refreshAll(); }
 function updatePatientSelect() {
   var data = loadData();
   var nameSet = {};
-  data.forEach(function(r){ nameSet[r.name || '\u4e0d\u660e'] = true; });
+  data.forEach(function(r){ nameSet[r.name || '不明'] = true; });
   var names = Object.keys(nameSet);
   var sel = document.getElementById('patient-select');
   var cur = sel.value;
-  sel.innerHTML = '<option value="__all__">\u5168\u60a3\u8005</option>';
+  sel.innerHTML = '<option value="__all__">全患者</option>';
   names.forEach(function(n) {
     var o = document.createElement('option');
     o.value = n; o.textContent = n;
@@ -403,7 +491,6 @@ function updatePatientSelect() {
   if (names.indexOf(cur) >= 0 || cur === '__all__') sel.value = cur;
 }
 
-// ===== Toast =====
 function showToast(msg, type) {
   var t = document.getElementById('toast');
   t.textContent = msg;
@@ -411,12 +498,11 @@ function showToast(msg, type) {
   setTimeout(function(){ t.className = 'toast'; }, 2500);
 }
 
-// ===== Table =====
 var tableOpen = false;
 function toggleTable() {
   tableOpen = !tableOpen;
   document.getElementById('table-section').style.display = tableOpen ? 'block' : 'none';
-  document.getElementById('toggle-table-btn').textContent = tableOpen ? '\u6298\u308a\u305f\u305f\u3080' : '\u5c55\u958b';
+  document.getElementById('toggle-table-btn').textContent = tableOpen ? '折りたたむ' : '展開';
   if (tableOpen) renderTable();
 }
 
@@ -424,15 +510,15 @@ function verdictBadge(score, type) {
   if (score == null) return '-';
   var cls, label;
   if (type === 'hit6') {
-    if (score >= 60) { cls='severe'; label='\u91cd\u5ea6'; }
-    else if (score >= 56) { cls='high'; label='\u304b\u306a\u308a'; }
-    else if (score >= 50) { cls='moderate'; label='\u3042\u308b\u7a0b\u5ea6'; }
-    else { cls='mild'; label='\u5f71\u97ff\u306a\u3057'; }
+    if (score >= 60) { cls='severe'; label='重度'; }
+    else if (score >= 56) { cls='high'; label='かなり'; }
+    else if (score >= 50) { cls='moderate'; label='ある程度'; }
+    else { cls='mild'; label='影響なし'; }
   } else {
-    if (score >= 5) { cls='severe'; label='\u91cd\u5ea6'; }
-    else if (score >= 3) { cls='high'; label='\u4e2d\u7b49\u5ea6'; }
-    else if (score >= 1) { cls='moderate'; label='\u8efd\u5ea6'; }
-    else { cls='mild'; label='\u652f\u969c\u306a\u3057'; }
+    if (score >= 5) { cls='severe'; label='重度'; }
+    else if (score >= 3) { cls='high'; label='中等度'; }
+    else if (score >= 1) { cls='moderate'; label='軽度'; }
+    else { cls='mild'; label='支障なし'; }
   }
   return '<span class="badge badge-' + cls + '">' + label + '</span>';
 }
@@ -441,7 +527,7 @@ function renderTable() {
   var data = getFilteredData();
   var tbody = document.getElementById('data-tbody');
   if (!data.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa">\u30c7\u30fc\u30bf\u306a\u3057</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa">データなし</td></tr>';
     return;
   }
   tbody.innerHTML = data.map(function(r) {
@@ -450,15 +536,14 @@ function renderTable() {
       '<td>' + (r.name||'-') + '</td>' +
       '<td>' + (r.mhd!=null?r.mhd:'-') + '</td>' +
       '<td>' + (r.mmd!=null?r.mmd:'-') + '</td>' +
-      '<td>' + (r.hit6!=null?r.hit6+'\u70b9 '+verdictBadge(r.hit6,'hit6'):'-') + '</td>' +
-      '<td>' + (r.mibs4!=null?r.mibs4+'\u70b9 '+verdictBadge(r.mibs4,'mibs4'):'-') + '</td>' +
+      '<td>' + (r.hit6!=null?r.hit6+'点 '+verdictBadge(r.hit6,'hit6'):'-') + '</td>' +
+      '<td>' + (r.mibs4!=null?r.mibs4+'点 '+verdictBadge(r.mibs4,'mibs4'):'-') + '</td>' +
       '<td style="font-size:11px">' + (r.hit6Verdict||'') + ' / ' + (r.mibs4Verdict||'') + '</td>' +
-      '<td><button class="btn btn-danger btn-sm" onclick="deleteRecord(\'' + r.id + '\')">' + '\u524a\u9664' + '</button></td>' +
+      '<td><button class="btn btn-danger btn-sm" onclick="deleteRecord(\'' + r.id + '\')">削除</button></td>' +
       '</tr>';
   }).join('');
 }
 
-// ===== Charts =====
 var chartHit6, chartMhd, chartScatter, chartMibs4;
 
 function shortDate(dateStr) {
@@ -470,7 +555,7 @@ function shortDate(dateStr) {
 function renderCharts() {
   var data = getFilteredData();
   var cnt = document.getElementById('record-count');
-  cnt.textContent = data.length + '\u4ef6';
+  cnt.textContent = data.length + '件';
 
   if (!data.length) {
     document.getElementById('empty-charts').style.display = 'block';
@@ -493,237 +578,40 @@ function renderCharts() {
   var pointColor = '#4a6f8e';
   var lineColor = '#4a6f8e';
 
-  // --- HIT-6 Time Series ---
   if (chartHit6) chartHit6.destroy();
   var hit6Valid = hit6Data.filter(function(v){ return v != null; });
   var hit6Min = hit6Valid.length ? Math.max(36, Math.min.apply(null, hit6Valid) - 4) : 36;
   var hit6Max = hit6Valid.length ? Math.min(78, Math.max.apply(null, hit6Valid) + 4) : 78;
   chartHit6 = new Chart(document.getElementById('hit6Chart'), {
     type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'HIT-6',
-        data: hit6Data,
-        borderColor: lineColor,
-        backgroundColor: pointColor,
-        pointBackgroundColor: pointColor,
-        pointRadius: 6,
-        pointHoverRadius: 9,
-        borderWidth: 2,
-        tension: 0.15,
-        fill: false,
-        spanGaps: true
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          anchor: 'end',
-          align: 'top',
-          offset: 4,
-          color: '#333',
-          font: { size: 12, weight: 'bold' },
-          formatter: function(v){ return v != null ? v : ''; }
-        }
-      },
-      scales: {
-        y: {
-          min: hit6Min, max: hit6Max,
-          title: { display: true, text: 'HIT-6', font: { size: 14 } },
-          grid: { color: '#e8e8e8' }
-        },
-        x: {
-          title: { display: true, text: '\u65e5\u4ed8', font: { size: 14 } },
-          grid: { display: false },
-          ticks: { maxRotation: 45, minRotation: 30 }
-        }
-      },
-      layout: { padding: { top: 24 } }
-    },
+    data: { labels: labels, datasets: [{ label: 'HIT-6', data: hit6Data, borderColor: lineColor, backgroundColor: pointColor, pointBackgroundColor: pointColor, pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
+    options: { responsive: true, plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function(v){ return v != null ? v : ''; } } }, scales: { y: { min: hit6Min, max: hit6Max, title: { display: true, text: 'HIT-6', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, x: { title: { display: true, text: '日付', font: { size: 14 } }, grid: { display: false }, ticks: { maxRotation: 45, minRotation: 30 } } }, layout: { padding: { top: 24 } } },
     plugins: [ChartDataLabels]
   });
 
-  // --- MIBS-4 Time Series ---
   if (chartMibs4) chartMibs4.destroy();
   chartMibs4 = new Chart(document.getElementById('mibs4Chart'), {
     type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'MIBS-4',
-        data: mibs4Data,
-        borderColor: '#4f9d6b',
-        backgroundColor: '#4f9d6b',
-        pointBackgroundColor: '#4f9d6b',
-        pointRadius: 6,
-        pointHoverRadius: 9,
-        borderWidth: 2,
-        tension: 0.15,
-        fill: false,
-        spanGaps: true
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          anchor: 'end',
-          align: 'top',
-          offset: 4,
-          color: '#333',
-          font: { size: 12, weight: 'bold' },
-          formatter: function(v){ return v != null ? v : ''; }
-        }
-      },
-      scales: {
-        y: {
-          min: 0, max: 12,
-          title: { display: true, text: 'MIBS-4', font: { size: 14 } },
-          grid: { color: '#e8e8e8' }
-        },
-        x: {
-          title: { display: true, text: '\u65e5\u4ed8', font: { size: 14 } },
-          grid: { display: false },
-          ticks: { maxRotation: 45, minRotation: 30 }
-        }
-      },
-      layout: { padding: { top: 24 } }
-    },
+    data: { labels: labels, datasets: [{ label: 'MIBS-4', data: mibs4Data, borderColor: '#4f9d6b', backgroundColor: '#4f9d6b', pointBackgroundColor: '#4f9d6b', pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
+    options: { responsive: true, plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function(v){ return v != null ? v : ''; } } }, scales: { y: { min: 0, max: 12, title: { display: true, text: 'MIBS-4', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, x: { title: { display: true, text: '日付', font: { size: 14 } }, grid: { display: false }, ticks: { maxRotation: 45, minRotation: 30 } } }, layout: { padding: { top: 24 } } },
     plugins: [ChartDataLabels]
   });
 
-  // --- MHD / MMD Bar Chart ---
   if (chartMhd) chartMhd.destroy();
   chartMhd = new Chart(document.getElementById('mhdChart'), {
     type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: 'MHD (\u982d\u75db\u65e5\u6570)',
-          data: mhdData,
-          backgroundColor: 'rgba(232,132,42,0.7)',
-          borderColor: '#e8842a',
-          borderWidth: 1
-        },
-        {
-          label: 'MMD (\u670d\u85ac\u65e5\u6570)',
-          data: mmdData,
-          backgroundColor: 'rgba(79,157,107,0.7)',
-          borderColor: '#4f9d6b',
-          borderWidth: 1
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'top' },
-        datalabels: {
-          anchor: 'end',
-          align: 'top',
-          offset: 2,
-          color: '#333',
-          font: { size: 11, weight: 'bold' },
-          formatter: function(v){ return v != null ? v : ''; }
-        }
-      },
-      scales: {
-        y: {
-          min: 0, max: 28,
-          title: { display: true, text: '\u65e5\u6570', font: { size: 14 } },
-          grid: { color: '#e8e8e8' }
-        },
-        x: {
-          title: { display: true, text: '\u65e5\u4ed8', font: { size: 14 } },
-          grid: { display: false },
-          ticks: { maxRotation: 45, minRotation: 30 }
-        }
-      },
-      layout: { padding: { top: 24 } }
-    },
+    data: { labels: labels, datasets: [ { label: 'MHD (頭痛日数)', data: mhdData, backgroundColor: 'rgba(232,132,42,0.7)', borderColor: '#e8842a', borderWidth: 1 }, { label: 'MMD (服薬日数)', data: mmdData, backgroundColor: 'rgba(79,157,107,0.7)', borderColor: '#4f9d6b', borderWidth: 1 } ] },
+    options: { responsive: true, plugins: { legend: { position: 'top' }, datalabels: { anchor: 'end', align: 'top', offset: 2, color: '#333', font: { size: 11, weight: 'bold' }, formatter: function(v){ return v != null ? v : ''; } } }, scales: { y: { min: 0, max: 28, title: { display: true, text: '日数', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, x: { title: { display: true, text: '日付', font: { size: 14 } }, grid: { display: false }, ticks: { maxRotation: 45, minRotation: 30 } } }, layout: { padding: { top: 24 } } },
     plugins: [ChartDataLabels]
   });
 
-  // --- HIT-6 vs MIBS-4 Scatter ---
   if (chartScatter) chartScatter.destroy();
-  var scatterData = data
-    .filter(function(r){ return r.hit6 != null && r.mibs4 != null; })
-    .map(function(r){ return { x: r.mibs4, y: r.hit6, date: shortDate(r.date) }; });
-
+  var scatterData = data.filter(function(r){ return r.hit6 != null && r.mibs4 != null; }).map(function(r){ return { x: r.mibs4, y: r.hit6, date: shortDate(r.date) }; });
   chartScatter = new Chart(document.getElementById('scatterChart'), {
     type: 'scatter',
-    data: {
-      datasets: [{
-        label: 'HIT-6 \u00d7 MIBS-4',
-        data: scatterData,
-        backgroundColor: pointColor,
-        pointRadius: 7,
-        pointHoverRadius: 10
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          align: 'right',
-          anchor: 'end',
-          offset: 6,
-          color: '#555',
-          font: { size: 10 },
-          formatter: function(v, ctx) {
-            var pt = ctx.dataset.data[ctx.dataIndex];
-            return pt.date + '\n' + pt.x + ';' + pt.y;
-          }
-        },
-        tooltip: {
-          callbacks: {
-            label: function(ctx) {
-              var pt = ctx.raw;
-              return pt.date + ' \u2014 MIBS-4: ' + pt.x + ', HIT-6: ' + pt.y;
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          min: 0, max: 12,
-          title: { display: true, text: 'MIBS-4', font: { size: 14 } },
-          grid: { color: '#e8e8e8' }
-        },
-        y: {
-          min: 36, max: 78,
-          title: { display: true, text: 'HIT-6', font: { size: 14 } },
-          grid: { color: '#e8e8e8' }
-        }
-      },
-      layout: { padding: { top: 20, right: 40 } }
-    },
-    plugins: [
-      ChartDataLabels,
-      {
-        id: 'refLines',
-        beforeDraw: function(chart) {
-          var ctx = chart.ctx;
-          var xAxis = chart.scales.x;
-          var yAxis = chart.scales.y;
-          ctx.save();
-          ctx.strokeStyle = '#bbb';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([6,4]);
-          var y60 = yAxis.getPixelForValue(60);
-          ctx.beginPath(); ctx.moveTo(xAxis.left, y60); ctx.lineTo(xAxis.right, y60); ctx.stroke();
-          var x5 = xAxis.getPixelForValue(5);
-          ctx.beginPath(); ctx.moveTo(x5, yAxis.top); ctx.lineTo(x5, yAxis.bottom); ctx.stroke();
-          ctx.restore();
-        }
-      }
-    ]
+    data: { datasets: [{ label: 'HIT-6 × MIBS-4', data: scatterData, backgroundColor: pointColor, pointRadius: 7, pointHoverRadius: 10 }] },
+    options: { responsive: true, plugins: { legend: { display: false }, datalabels: { align: 'right', anchor: 'end', offset: 6, color: '#555', font: { size: 10 }, formatter: function(v, ctx) { var pt = ctx.dataset.data[ctx.dataIndex]; return pt.date + '\n' + pt.x + ';' + pt.y; } }, tooltip: { callbacks: { label: function(ctx) { var pt = ctx.raw; return pt.date + ' — MIBS-4: ' + pt.x + ', HIT-6: ' + pt.y; } } } }, scales: { x: { min: 0, max: 12, title: { display: true, text: 'MIBS-4', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6', font: { size: 14 } }, grid: { color: '#e8e8e8' } } }, layout: { padding: { top: 20, right: 40 } } },
+    plugins: [ ChartDataLabels, { id: 'refLines', beforeDraw: function(chart) { var ctx = chart.ctx; var xAxis = chart.scales.x; var yAxis = chart.scales.y; ctx.save(); ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1; ctx.setLineDash([6,4]); var y60 = yAxis.getPixelForValue(60); ctx.beginPath(); ctx.moveTo(xAxis.left, y60); ctx.lineTo(xAxis.right, y60); ctx.stroke(); var x5 = xAxis.getPixelForValue(5); ctx.beginPath(); ctx.moveTo(x5, yAxis.top); ctx.lineTo(x5, yAxis.bottom); ctx.stroke(); ctx.restore(); } } ]
   });
 }
 
@@ -738,8 +626,8 @@ function switchTab(tabId, btn) {
 
 function exportCsv() {
   var data = getFilteredData();
-  if (!data.length) { showToast('\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u305b\u3093', 'error'); return; }
-  var header = '\u65e5\u4ed8,\u6c0f\u540d,\u62c5\u5f53\u533b,MHD,MMD,\u30b9\u30c3\u30ad\u30ea\u305b\u305a,\u30b9\u30c3\u30ad\u30ea,HIT-6,HIT-6\u5224\u5b9a,MIBS-4,MIBS-4\u5224\u5b9a,\u5099\u8003';
+  if (!data.length) { showToast('データがありません', 'error'); return; }
+  var header = '日付,氏名,担当医,MHD,MMD,スッキリせず,スッキリ,HIT-6,HIT-6判定,MIBS-4,MIBS-4判定,備考';
   var rows = data.map(function(r) {
     return [r.date, r.name||'', r.doctor||'', r.mhd!=null?r.mhd:'', r.mmd!=null?r.mmd:'',
       r.notClearDays!=null?r.notClearDays:'', r.clearDays!=null?r.clearDays:'',
@@ -755,7 +643,7 @@ function exportCsv() {
   a.download = 'headache_data_' + new Date().toISOString().slice(0,10) + '.csv';
   a.click();
   URL.revokeObjectURL(url);
-  showToast('CSV\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f', 'success');
+  showToast('CSVをダウンロードしました', 'success');
 }
 
 function refreshAll() {
@@ -764,7 +652,6 @@ function refreshAll() {
   if (tableOpen) renderTable();
 }
 
-// Hidden element for file-based QR scan
 var tmpDiv = document.createElement('div');
 tmpDiv.id = 'qr-reader-file-tmp';
 tmpDiv.style.display = 'none';
