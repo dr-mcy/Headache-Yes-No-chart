@@ -24,11 +24,12 @@ h1{text-align:center;font-size:20px;margin:10px 0 6px;color:#4a6fa5}
 .btn-secondary{background:#eee;color:#333}
 .btn-secondary:hover{background:#ddd}
 .btn-sm{padding:6px 12px;font-size:12px}
-.actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.actions .spacer{flex:1 1 auto}
 .patient-filter{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .patient-filter select{padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit}
 .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:1000;background:rgba(0,0,0,.5)}
-.modal[hidden]{display:none}
+.modal.hidden{display:none}
 .modal-card{background:#fff;border-radius:12px;padding:20px;max-width:90vw;width:440px;max-height:90vh;overflow:auto}
 .modal-card h3{margin-bottom:10px;color:#4a6fa5}
 .toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;z-index:2000;opacity:0;transition:opacity .3s}
@@ -57,10 +58,24 @@ table.data-table tr:hover{background:#eef2f7}
 .badge-mild{background:#27ae60}
 .empty-state{text-align:center;padding:40px 20px;color:#aaa;font-size:14px}
 .empty-state .icon{font-size:48px;margin-bottom:10px}
+.scan-methods{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.scan-methods .or-divider{text-align:center;color:#aaa;font-size:12px;position:relative}
+.scan-methods .or-divider::before,.scan-methods .or-divider::after{content:'';position:absolute;top:50%;width:40%;height:1px;background:#ddd}
+.scan-methods .or-divider::before{left:0}
+.scan-methods .or-divider::after{right:0}
+.file-upload-area{border:2px dashed #ccc;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s}
+.file-upload-area:hover{border-color:#4a6fa5}
+.file-upload-area input{display:none}
+.file-upload-area .icon{font-size:32px;margin-bottom:6px}
+.file-upload-area .label{font-size:13px;color:#666}
+#qr-reader{min-height:250px}
+#qr-reader video{border-radius:8px}
+.scanner-status{text-align:center;padding:10px;font-size:13px;color:#888}
 @media(max-width:600px){
   .container{padding:8px}
   .card{padding:12px}
   .actions{flex-direction:column}
+  .actions .spacer{display:none}
   .btn{width:100%;justify-content:center}
 }
 </style>
@@ -75,6 +90,7 @@ table.data-table tr:hover{background:#eef2f7}
       <button class="btn btn-primary" onclick="openScanner()">&#x1F4F7; QRコード読み取り</button>
       <button class="btn btn-secondary" onclick="openManualInput()">&#x1F4DD; 手動入力</button>
       <button class="btn btn-secondary" onclick="exportCsv()">&#x1F4E5; CSV出力</button>
+      <span class="spacer"></span>
       <button class="btn btn-danger btn-sm" onclick="clearAllData()">&#x1F5D1; 全データ削除</button>
     </div>
     <div class="patient-filter">
@@ -129,17 +145,31 @@ table.data-table tr:hover{background:#eef2f7}
   </div>
 </div>
 
-<div class="modal" id="scanner-modal" hidden>
+<!-- QR Scanner Modal -->
+<div class="modal hidden" id="scanner-modal">
   <div class="modal-card">
     <h3>&#x1F4F7; QRコード読み取り</h3>
-    <div id="qr-reader"></div>
+    <div class="scan-methods">
+      <!-- ファイルから読み取り（iOSでも安定） -->
+      <div class="file-upload-area" id="file-upload-area" onclick="document.getElementById('qr-file-input').click()">
+        <div class="icon">&#x1F4F1;</div>
+        <div class="label">タップしてQRコード画像を選択<br><small>（カメラ撮影 or ライブラリ）</small></div>
+        <input type="file" id="qr-file-input" accept="image/*" capture="environment" onchange="onFileSelected(event)">
+      </div>
+      <div class="or-divider">または</div>
+      <!-- ライブカメラスキャン -->
+      <button class="btn btn-primary" onclick="startLiveCamera()" id="live-camera-btn" style="width:100%;justify-content:center">&#x1F3A5; ライブカメラでスキャン</button>
+      <div id="qr-reader"></div>
+      <div class="scanner-status" id="scanner-status"></div>
+    </div>
     <div style="margin-top:10px;text-align:center">
-      <button class="btn btn-secondary" onclick="closeScanner()">閉じる</button>
+      <button class="btn btn-secondary" onclick="closeScanner()" style="width:100%">閉じる</button>
     </div>
   </div>
 </div>
 
-<div class="modal" id="manual-modal" hidden>
+<!-- Manual Input Modal -->
+<div class="modal hidden" id="manual-modal">
   <div class="modal-card">
     <h3>&#x1F4DD; QRテキスト手動入力</h3>
     <p style="font-size:12px;color:#888;margin-bottom:8px">QRコードの内容をペーストしてください</p>
@@ -202,42 +232,105 @@ function parseQrText(text) {
   return d;
 }
 
+// ===== QR Scanner (iOS-safe) =====
 var html5QrCode = null;
+var scannerRunning = false;
 
 function openScanner() {
-  document.getElementById('scanner-modal').hidden = false;
+  document.getElementById('scanner-modal').classList.remove('hidden');
+  document.getElementById('scanner-status').textContent = '';
+  document.getElementById('qr-reader').innerHTML = '';
+  document.getElementById('live-camera-btn').style.display = '';
+  document.getElementById('qr-file-input').value = '';
+}
+
+function startLiveCamera() {
+  if (scannerRunning) return;
+  var statusEl = document.getElementById('scanner-status');
+  statusEl.textContent = '\u30ab\u30e1\u30e9\u3092\u8d77\u52d5\u4e2d...';
+  document.getElementById('live-camera-btn').style.display = 'none';
+
   html5QrCode = new Html5Qrcode('qr-reader');
+
   html5QrCode.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 280, height: 280 } },
-    onQrSuccess,
-    function(){}
-  ).catch(function(err) {
-    document.getElementById('qr-reader').innerHTML =
-      '<p style="color:#c00;text-align:center;padding:20px">\u30ab\u30e1\u30e9\u3092\u8d77\u52d5\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002<br>\u624b\u52d5\u5165\u529b\u3092\u304a\u4f7f\u3044\u304f\u3060\u3055\u3044\u3002</p>';
+    { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+    function onSuccess(decodedText) {
+      stopLiveCamera(function() {
+        closeScanner();
+        addRecord(decodedText);
+      });
+    },
+    function onError() {}
+  ).then(function() {
+    scannerRunning = true;
+    statusEl.textContent = 'QR\u30b3\u30fc\u30c9\u3092\u304b\u3056\u3057\u3066\u304f\u3060\u3055\u3044';
+  }).catch(function(err) {
+    scannerRunning = false;
+    statusEl.textContent = '\u30ab\u30e1\u30e9\u3092\u8d77\u52d5\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u753b\u50cf\u9078\u629e\u3092\u304a\u4f7f\u3044\u304f\u3060\u3055\u3044\u3002';
+    document.getElementById('live-camera-btn').style.display = '';
+    document.getElementById('live-camera-btn').textContent = '\u2757 \u30ab\u30e1\u30e9\u8d77\u52d5\u5931\u6557 - \u518d\u8a66\u884c';
+    console.error('Camera start error:', err);
   });
 }
 
-function closeScanner() {
-  if (html5QrCode) {
-    html5QrCode.stop().catch(function(){});
-    html5QrCode.clear();
-    html5QrCode = null;
+function stopLiveCamera(callback) {
+  if (html5QrCode && scannerRunning) {
+    scannerRunning = false;
+    html5QrCode.stop().then(function() {
+      html5QrCode.clear();
+      html5QrCode = null;
+      if (callback) callback();
+    }).catch(function() {
+      html5QrCode = null;
+      scannerRunning = false;
+      if (callback) callback();
+    });
+  } else {
+    if (html5QrCode) {
+      try { html5QrCode.clear(); } catch(e) {}
+      html5QrCode = null;
+    }
+    scannerRunning = false;
+    if (callback) callback();
   }
-  document.getElementById('scanner-modal').hidden = true;
 }
 
-function onQrSuccess(decodedText) {
-  closeScanner();
-  addRecord(decodedText);
+function closeScanner() {
+  stopLiveCamera(function() {
+    document.getElementById('scanner-modal').classList.add('hidden');
+    document.getElementById('qr-reader').innerHTML = '';
+  });
 }
 
+// ===== File-based QR reading (iOS-safe) =====
+function onFileSelected(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('scanner-status');
+  statusEl.textContent = '\u753b\u50cf\u3092\u89e3\u6790\u4e2d...';
+
+  var reader = new Html5Qrcode('qr-reader-file-tmp');
+  reader.scanFile(file, true)
+    .then(function(decodedText) {
+      statusEl.textContent = '';
+      closeScanner();
+      addRecord(decodedText);
+    })
+    .catch(function(err) {
+      statusEl.textContent = 'QR\u30b3\u30fc\u30c9\u3092\u8aad\u307f\u53d6\u308c\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u518d\u5ea6\u64ae\u5f71\u3057\u3066\u304f\u3060\u3055\u3044\u3002';
+      console.error('File scan error:', err);
+    });
+  event.target.value = '';
+}
+
+// ===== Manual Input =====
 function openManualInput() {
   document.getElementById('manual-text').value = '';
-  document.getElementById('manual-modal').hidden = false;
+  document.getElementById('manual-modal').classList.remove('hidden');
 }
 function closeManualInput() {
-  document.getElementById('manual-modal').hidden = true;
+  document.getElementById('manual-modal').classList.add('hidden');
 }
 function submitManualInput() {
   var text = document.getElementById('manual-text').value.trim();
@@ -246,6 +339,7 @@ function submitManualInput() {
   addRecord(text);
 }
 
+// ===== Add Record =====
 function addRecord(text) {
   if (text.indexOf('\u982d\u75db\u30c1\u30a7\u30c3\u30af\u30b7\u30fc\u30c8') < 0 && text.indexOf('HIT-6') < 0 && text.indexOf('MIBS-4') < 0) {
     showToast('\u982d\u75db\u30c1\u30a7\u30c3\u30af\u30b7\u30fc\u30c8\u306eQR\u3067\u306f\u3042\u308a\u307e\u305b\u3093', 'error');
@@ -283,6 +377,7 @@ function clearAllData() {
   showToast('\u5168\u30c7\u30fc\u30bf\u3092\u524a\u9664\u3057\u307e\u3057\u305f', 'warn');
 }
 
+// ===== Filter =====
 function getFilteredData() {
   var data = loadData();
   var sel = document.getElementById('patient-select').value;
@@ -308,6 +403,7 @@ function updatePatientSelect() {
   if (names.indexOf(cur) >= 0 || cur === '__all__') sel.value = cur;
 }
 
+// ===== Toast =====
 function showToast(msg, type) {
   var t = document.getElementById('toast');
   t.textContent = msg;
@@ -315,6 +411,7 @@ function showToast(msg, type) {
   setTimeout(function(){ t.className = 'toast'; }, 2500);
 }
 
+// ===== Table =====
 var tableOpen = false;
 function toggleTable() {
   tableOpen = !tableOpen;
@@ -361,6 +458,7 @@ function renderTable() {
   }).join('');
 }
 
+// ===== Charts =====
 var chartHit6, chartMhd, chartScatter, chartMibs4;
 
 function shortDate(dateStr) {
@@ -665,6 +763,12 @@ function refreshAll() {
   renderCharts();
   if (tableOpen) renderTable();
 }
+
+// Hidden element for file-based QR scan
+var tmpDiv = document.createElement('div');
+tmpDiv.id = 'qr-reader-file-tmp';
+tmpDiv.style.display = 'none';
+document.body.appendChild(tmpDiv);
 
 refreshAll();
 </script>
