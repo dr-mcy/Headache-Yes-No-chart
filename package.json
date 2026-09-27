@@ -1,0 +1,14 @@
+{
+  "name": "headache-yes-no-chart",
+  "version": "1.0.0",
+  "private": true,
+  "description": "頭痛チェックQRコード読み取り→グラフ化ビューア（院内端末用）",
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "node test/e2e.integration.js",
+    "test:perf": "node test/perf.test.js"
+  },
+  "devDependencies": {
+    "playwright": "1.52.0"
+  }
+}
