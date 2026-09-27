@@ -7,12 +7,14 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="parser.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;background:#f0f2f5;color:#333;font-size:14px}
-.container{max-width:960px;margin:0 auto;padding:12px}
-h1{text-align:center;font-size:20px;margin:10px 0 6px;color:#4a6fa5}
+.container{max-width:980px;margin:0 auto;padding:12px}
+h1{text-align:center;font-size:20px;margin:10px 0 2px;color:#4a6fa5}
+.version{text-align:center;font-size:11px;color:#aaa;margin-bottom:6px}
 .subtitle{text-align:center;font-size:12px;color:#888;margin-bottom:16px}
 .card{background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.07);padding:16px;margin-bottom:16px}
 .card h2{font-size:16px;margin-bottom:10px;color:#4a6fa5;border-bottom:2px solid #e0e6ef;padding-bottom:6px}
@@ -26,13 +28,24 @@ h1{text-align:center;font-size:20px;margin:10px 0 6px;color:#4a6fa5}
 .btn-sm{padding:6px 12px;font-size:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .actions .spacer{flex:1 1 auto}
-.patient-filter{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.patient-filter select{padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit}
+.storage-warning{background:#fff1e3;border:1px solid #d35400;color:#a04000;border-radius:6px;padding:8px 12px;font-size:12px;margin-bottom:12px}
+.storage-warning.hidden{display:none}
+.storage-warning.fm-banner-error{background:#fdecea;border-color:#c0392b;color:#a93226}
+.patient-search-wrap{position:relative;margin-bottom:4px}
+.patient-search-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.patient-search-row input[type="text"]{flex:1 1 220px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit}
+.patient-current{font-size:13px;color:#4a6fa5;font-weight:bold}
+.patient-suggestions{position:absolute;left:0;top:calc(100% + 2px);width:100%;max-width:420px;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:50}
+.patient-suggestions.hidden{display:none}
+.patient-suggestions .sugg-item{padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0}
+.patient-suggestions .sugg-item:hover{background:#eef2f7}
+.patient-suggestions .sugg-empty{padding:8px 10px;font-size:12px;color:#999}
 .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:1000;background:rgba(0,0,0,.5)}
 .modal.hidden{display:none}
-.modal-card{background:#fff;border-radius:12px;padding:20px;max-width:90vw;width:440px;max-height:90vh;overflow:auto}
+.modal-card{background:#fff;border-radius:12px;padding:20px;max-width:92vw;width:480px;max-height:90vh;overflow:auto}
+.modal-card.wide{width:640px}
 .modal-card h3{margin-bottom:10px;color:#4a6fa5}
-.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;z-index:2000;opacity:0;transition:opacity .3s}
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;z-index:2000;opacity:0;transition:opacity .3s;max-width:70vw}
 .toast.show{opacity:1}
 .toast-success{background:#27ae60}
 .toast-error{background:#c0392b}
@@ -42,11 +55,11 @@ table.data-table th,table.data-table td{padding:6px 8px;border:1px solid #e0e0e0
 table.data-table th{background:#f0f4f8;font-weight:bold;color:#4a6fa5;position:sticky;top:0}
 table.data-table tr:nth-child(even){background:#fafbfc}
 table.data-table tr:hover{background:#eef2f7}
-.table-wrap{max-height:300px;overflow:auto;border:1px solid #e0e0e0;border-radius:6px}
+.table-wrap{max-height:320px;overflow:auto;border:1px solid #e0e0e0;border-radius:6px}
 .chart-container{position:relative;width:100%;max-width:100%}
 .chart-container canvas{width:100%!important}
-.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid #e0e6ef;padding-bottom:0}
-.tab{padding:8px 16px;cursor:pointer;border:none;background:transparent;font-size:13px;font-family:inherit;border-bottom:3px solid transparent;color:#888;transition:all .15s}
+.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid #e0e6ef;padding-bottom:0;flex-wrap:wrap}
+.tab{padding:8px 14px;cursor:pointer;border:none;background:transparent;font-size:13px;font-family:inherit;border-bottom:3px solid transparent;color:#888;transition:all .15s}
 .tab.active{color:#4a6fa5;border-bottom-color:#4a6fa5;font-weight:bold}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
@@ -56,6 +69,7 @@ table.data-table tr:hover{background:#eef2f7}
 .badge-high{background:#d35400}
 .badge-moderate{background:#d4ac0d;color:#333}
 .badge-mild{background:#27ae60}
+.warn-flag{color:#c0392b;font-weight:bold}
 .empty-state{text-align:center;padding:40px 20px;color:#aaa;font-size:14px}
 .empty-state .icon{font-size:48px;margin-bottom:10px}
 .scan-methods{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
@@ -71,9 +85,24 @@ table.data-table tr:hover{background:#eef2f7}
 #qr-reader{min-height:250px}
 #qr-reader video{border-radius:8px}
 .scanner-status{text-align:center;padding:10px;font-size:13px;color:#888}
+.continuous-row{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:#666;margin-top:4px}
 .debug-text{background:#f8f8f8;border:1px solid #eee;border-radius:6px;padding:10px;font-size:11px;text-align:left;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;font-family:inherit;line-height:1.55;color:#444;margin:8px 0}
 .date-input-row{display:flex;gap:6px;align-items:center;margin:10px 0;justify-content:center}
 .date-input-row input{width:60px;padding:6px;border:1px solid #ccc;border-radius:4px;text-align:center;font-size:14px}
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:700px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
+.summary-cell{background:#f7f9fc;border-radius:8px;padding:10px;text-align:center}
+.summary-cell .lbl{font-size:11px;color:#888;margin-bottom:4px}
+.summary-cell .val{font-size:18px;font-weight:bold;color:#333}
+.summary-cell .diff{font-size:11px;margin-top:2px}
+.diff-up{color:#c0392b}
+.diff-down{color:#27ae60}
+.diff-flat{color:#888}
+.detail-q{margin-bottom:10px;font-size:12px;line-height:1.5}
+.detail-q .qn{font-weight:bold;color:#4a6fa5}
+.detail-q .ans{color:#333}
+.detail-q .note{color:#888;font-size:11px}
+.patient-info-line{font-size:13px;margin-bottom:4px}
 @media(max-width:600px){
   .container{padding:8px}
   .card{padding:12px}
@@ -81,42 +110,76 @@ table.data-table tr:hover{background:#eef2f7}
   .actions .spacer{display:none}
   .btn{width:100%;justify-content:center}
 }
+@media print{
+  body{background:#fff}
+  .no-print{display:none!important}
+  .card{box-shadow:none;border:1px solid #ddd;page-break-inside:avoid}
+  .container{max-width:none;padding:0}
+  .table-wrap{max-height:none;overflow:visible}
+}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>&#x1F4CA; 頭痛チェック グラフビューア</h1>
+  <div class="version">v1.0.0</div>
   <p class="subtitle">Headache-Yes-No QRコードを読み取り、HIT-6 / MIBS-4 / MHD / MMD を可視化</p>
 
-  <div class="card">
+  <div class="storage-warning hidden no-print" id="storage-warning"></div>
+  <div class="storage-warning hidden no-print" id="fm-banner"></div>
+
+  <div class="card no-print">
     <div class="actions">
       <button class="btn btn-primary" onclick="openScanner()">&#x1F4F7; QRコード読み取り</button>
       <button class="btn btn-secondary" onclick="openManualInput()">&#x1F4DD; 手動入力</button>
       <button class="btn btn-secondary" onclick="exportCsv()">&#x1F4E5; CSV出力</button>
+      <button class="btn btn-secondary" onclick="openBackupModal()">&#x1F4BE; バックアップ</button>
+      <button class="btn btn-secondary" onclick="printReport()">&#x1F5A8; 印刷</button>
       <span class="spacer"></span>
       <button class="btn btn-danger btn-sm" onclick="clearAllData()">&#x1F5D1; 全データ削除</button>
     </div>
-    <div class="patient-filter">
-      <label>患者フィルタ:</label>
-      <select id="patient-select" onchange="applyFilter()">
-        <option value="__all__">全患者</option>
-      </select>
-      <span id="record-count" style="font-size:12px;color:#888"></span>
+    <div class="patient-search-wrap">
+      <div class="patient-search-row">
+        <label style="font-size:13px">患者検索:</label>
+        <input type="text" id="patient-search" placeholder="病院ID または 氏名で検索" oninput="onPatientSearchInput()" onfocus="onPatientSearchInput()">
+        <button class="btn btn-secondary btn-sm" onclick="clearPatientSelection()">選択解除</button>
+        <span id="record-count" style="font-size:12px;color:#888"></span>
+      </div>
+      <div class="patient-suggestions hidden" id="patient-suggestions"></div>
+    </div>
+    <div class="patient-current" id="patient-current"></div>
+  </div>
+
+  <div class="card no-print">
+    <h2>&#x1F3E5; FileMaker連携</h2>
+    <p style="font-size:12px;color:#666;margin-bottom:6px" id="fm-folder-status">確認中...</p>
+    <div class="actions" style="margin-bottom:0">
+      <button class="btn btn-secondary btn-sm" onclick="fmSetupFolder()" id="fm-setup-btn">&#x1F4C1; 書き出しフォルダを選択</button>
+      <button class="btn btn-secondary btn-sm" onclick="fmRequestPermissionAgain()">&#x1F511; アクセスを許可</button>
+      <button class="btn btn-secondary btn-sm" onclick="fmAutoExport({requestPermission:true})">&#x1F504; 未書き出し分を再書き出し</button>
+      <button class="btn btn-secondary btn-sm" onclick="fmManualDownload()" id="fm-manual-btn">&#x1F4E5; FileMaker用CSVを保存</button>
+      <span class="spacer"></span>
+      <span id="fm-unexported-count" style="font-size:12px;color:#888">未書き出し: 0件</span>
     </div>
   </div>
 
-  <div class="card">
-    <div class="tabs">
+  <div class="card" id="summary-card" style="display:none">
+    <h2>&#x1F4CC; 患者サマリー</h2>
+    <div class="summary-grid" id="summary-grid"></div>
+  </div>
+
+  <div class="card" id="charts-card">
+    <div class="tabs no-print">
       <button class="tab active" onclick="switchTab('hit6-tab',this)">HIT-6 推移</button>
-      <button class="tab" onclick="switchTab('mhd-tab',this)">MHD / MMD</button>
+      <button class="tab" onclick="switchTab('days-tab',this)">日数（頭痛/服薬）</button>
       <button class="tab" onclick="switchTab('scatter-tab',this)">HIT-6 &times; MIBS-4</button>
       <button class="tab" onclick="switchTab('mibs4-tab',this)">MIBS-4 推移</button>
     </div>
     <div id="hit6-tab" class="tab-panel active">
       <div class="chart-container"><canvas id="hit6Chart"></canvas></div>
     </div>
-    <div id="mhd-tab" class="tab-panel">
-      <div class="chart-container"><canvas id="mhdChart"></canvas></div>
+    <div id="days-tab" class="tab-panel">
+      <div class="chart-container"><canvas id="daysChart"></canvas></div>
     </div>
     <div id="scatter-tab" class="tab-panel">
       <div class="chart-container"><canvas id="scatterChart"></canvas></div>
@@ -126,19 +189,19 @@ table.data-table tr:hover{background:#eef2f7}
     </div>
     <div id="empty-charts" class="empty-state" style="display:none">
       <div class="icon">&#x1F4ED;</div>
-      <div>データがありません。QRコードを読み取ってください。</div>
+      <div id="empty-charts-text">データがありません。QRコードを読み取ってください。</div>
     </div>
   </div>
 
   <div class="card">
-    <h2>&#x1F4CB; データ一覧 <button class="btn btn-sm btn-secondary" onclick="toggleTable()" id="toggle-table-btn">展開</button></h2>
+    <h2>&#x1F4CB; データ一覧 <button class="btn btn-sm btn-secondary no-print" onclick="toggleTable()" id="toggle-table-btn">展開</button></h2>
     <div id="table-section" style="display:none">
       <div class="table-wrap">
         <table class="data-table" id="data-table">
           <thead>
             <tr>
-              <th>日付</th><th>氏名</th><th>MHD</th><th>MMD</th>
-              <th>HIT-6</th><th>MIBS-4</th><th>判定</th><th>操作</th>
+              <th>記入日</th><th>患者</th><th>MHD</th><th>MMD</th>
+              <th>HIT-6</th><th>MIBS-4</th><th>判定</th><th class="no-print">操作</th>
             </tr>
           </thead>
           <tbody id="data-tbody"></tbody>
@@ -149,7 +212,7 @@ table.data-table tr:hover{background:#eef2f7}
 </div>
 
 <!-- QR Scanner Modal -->
-<div class="modal hidden" id="scanner-modal">
+<div class="modal hidden no-print" id="scanner-modal">
   <div class="modal-card">
     <h3>&#x1F4F7; QRコード読み取り</h3>
     <div class="scan-methods">
@@ -162,20 +225,23 @@ table.data-table tr:hover{background:#eef2f7}
       <button class="btn btn-primary" onclick="startLiveCamera()" id="live-camera-btn" style="width:100%;justify-content:center">&#x1F3A5; ライブカメラでスキャン</button>
       <div id="qr-reader"></div>
       <div class="scanner-status" id="scanner-status"></div>
+      <div class="continuous-row" id="continuous-row" style="display:none">
+        <label><input type="checkbox" id="continuous-checkbox" checked> 連続読取（登録後もカメラを止めない）</label>
+      </div>
     </div>
     <div style="margin-top:10px;text-align:center">
-      <button class="btn btn-secondary" onclick="closeScanner()" style="width:100%">閉じる</button>
+      <button class="btn btn-secondary" onclick="closeScanner()" style="width:100%">スキャン終了</button>
     </div>
   </div>
 </div>
 
 <!-- Manual Input Modal -->
-<div class="modal hidden" id="manual-modal">
+<div class="modal hidden no-print" id="manual-modal">
   <div class="modal-card">
     <h3>&#x1F4DD; QRテキスト手動入力</h3>
     <p style="font-size:12px;color:#888;margin-bottom:8px">QRコードの内容をペーストしてください</p>
     <div class="manual-input">
-      <textarea id="manual-text" placeholder="頭痛チェックシート&#10;日付: 2025/1/24&#10;氏名: ...&#10;..."></textarea>
+      <textarea id="manual-text" placeholder="頭痛チェックシート&#10;記入日: 2026/09/27&#10;氏名: ...&#10;..."></textarea>
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-secondary" onclick="closeManualInput()">キャンセル</button>
@@ -185,10 +251,10 @@ table.data-table tr:hover{background:#eef2f7}
 </div>
 
 <!-- Date Fix Modal (when date parsing fails) -->
-<div class="modal hidden" id="datefix-modal">
+<div class="modal hidden no-print" id="datefix-modal">
   <div class="modal-card">
-    <h3>&#x26A0;&#xFE0F; 日付が読み取れませんでした</h3>
-    <p style="font-size:12px;color:#666;margin-bottom:6px">QRコード内の日付が空欄、または認識できない形式です。<br>日付を入力して登録するか、キャンセルしてください。</p>
+    <h3>&#x26A0;&#xFE0F; 記入日が読み取れませんでした</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:6px">QRコード内の記入日が空欄、または認識できない形式です。<br>日付を入力して登録するか、キャンセルしてください。</p>
     <div class="date-input-row">
       <input type="number" id="fix-year" placeholder="年" min="2020" max="2099">
       <span>/</span>
@@ -208,89 +274,346 @@ table.data-table tr:hover{background:#eef2f7}
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<!-- Record Detail Modal -->
+<div class="modal hidden no-print" id="detail-modal">
+  <div class="modal-card wide">
+    <h3>&#x1F4C4; 記録詳細</h3>
+    <div id="detail-body"></div>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-danger" id="detail-delete-btn">削除</button>
+      <button class="btn btn-secondary" onclick="closeDetail()">閉じる</button>
+      <button class="btn btn-primary" id="detail-save-btn">記入日を保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Backup Modal -->
+<div class="modal hidden no-print" id="backup-modal">
+  <div class="modal-card">
+    <h3>&#x1F4BE; バックアップ</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:10px">JSON形式でエクスポート／既存データとマージしてインポートできます。</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn btn-primary" onclick="exportBackup()">&#x1F4E4; JSONを書き出す</button>
+      <div class="file-upload-area" onclick="document.getElementById('backup-file-input').click()">
+        <div class="label">タップしてバックアップJSONを選択</div>
+        <input type="file" id="backup-file-input" accept="application/json,.json" onchange="onBackupFileSelected(event)">
+      </div>
+    </div>
+    <div style="margin-top:14px;text-align:right">
+      <button class="btn btn-secondary" onclick="closeBackupModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast no-print" id="toast"></div>
 
 <script>
-var STORAGE_KEY = 'headache_qr_data';
+var DB_NAME = 'headache_db';
+var DB_VERSION = 2;
+var STORE = 'records';
+var META_STORE = 'meta';
+var LEGACY_KEY = 'headache_qr_data';
+var FM_FILENAME = 'headache_inbox.csv';
+var P = window.HeadacheParser;
+var dbPromise = null;
 
-function loadData() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-  catch(e) { return []; }
-}
-function saveData(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-
-// 全角数字 → 半角
-function normalizeText(text) {
-  return text.replace(/[\uFF10-\uFF19]/g, function(c){ return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
-}
-
-function parseDate(text) {
-  // 様々な区切り文字（/, -, 年月日, 全角スラッシュ）に対応
-  // 例: 2026/5/9, 2026-5-9, 2026年5月9日, 26/5/9
-  var patterns = [
-    /\u65e5\u4ed8\s*[\uff1a:]\s*(\d{2,4})\s*[\/\-\uFF0F\u5e74\.]\s*(\d{1,2})\s*[\/\-\uFF0F\u6708\.]\s*(\d{1,2})/,
-    /(\d{4})\s*[\/\-\uFF0F\u5e74\.]\s*(\d{1,2})\s*[\/\-\uFF0F\u6708\.]\s*(\d{1,2})/
-  ];
-  for (var i = 0; i < patterns.length; i++) {
-    var m = text.match(patterns[i]);
-    if (m) {
-      var y = parseInt(m[1]); if (y < 100) y += 2000;
-      var mo = parseInt(m[2]), da = parseInt(m[3]);
-      if (y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
-        return {
-          date: y + '/' + String(mo).padStart(2,'0') + '/' + String(da).padStart(2,'0'),
-          sortKey: y * 10000 + mo * 100 + da
-        };
+function openDb() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise(function (resolve, reject) {
+    var req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = function (e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        var store = db.createObjectStore(STORE, { keyPath: 'id' });
+        store.createIndex('patientKey', 'patientKey', { unique: false });
+        store.createIndex('sortKey', 'sortKey', { unique: false });
       }
-    }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = function (e) { resolve(e.target.result); };
+    req.onerror = function (e) { reject(e.target.error); };
+  });
+  return dbPromise;
+}
+
+function idbMetaGet(key) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(META_STORE, 'readonly');
+      var req = tx.objectStore(META_STORE).get(key);
+      req.onsuccess = function () { resolve(req.result ? req.result.value : null); };
+      req.onerror = function () { reject(req.error); };
+    });
+  });
+}
+
+function idbMetaSet(key, value) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(META_STORE, 'readwrite');
+      tx.objectStore(META_STORE).put({ key: key, value: value });
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+    });
+  });
+}
+
+function idbGetAll() {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(STORE, 'readonly');
+      var store = tx.objectStore(STORE);
+      var req = store.getAll();
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { reject(req.error); };
+    });
+  });
+}
+
+function idbPutMany(records) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(STORE, 'readwrite');
+      var store = tx.objectStore(STORE);
+      records.forEach(function (r) { store.put(r); });
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+      tx.onabort = function () { reject(tx.error || new Error('transaction aborted')); };
+    });
+  });
+}
+
+function idbPut(record) { return idbPutMany([record]); }
+
+function idbDelete(id) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(id);
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+    });
+  });
+}
+
+function idbClear() {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+    });
+  });
+}
+
+// 旧 localStorage(headache_qr_data) から IndexedDB へ移行する。
+// 成功を確認できた場合のみ旧 key を消す。失敗時は旧 key を残す。
+function migrateFromLocalStorage() {
+  var raw;
+  try { raw = localStorage.getItem(LEGACY_KEY); } catch (e) { return Promise.resolve(); }
+  if (!raw) return Promise.resolve();
+  var legacy;
+  try { legacy = JSON.parse(raw); } catch (e) { return Promise.resolve(); }
+  if (!Array.isArray(legacy) || !legacy.length) {
+    try { localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+    return Promise.resolve();
   }
-  return null;
+  var migrated = legacy.map(function (r) { return ensureRegisteredAt(P.migrateRecord(r)); });
+  return idbPutMany(migrated).then(function () {
+    return idbGetAll();
+  }).then(function (all) {
+    var ids = {};
+    all.forEach(function (r) { ids[r.id] = true; });
+    var ok = migrated.every(function (r) { return ids[r.id]; });
+    if (ok) {
+      try { localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+    } else {
+      showToast('旧データの移行を確認できませんでした。旧データは保持されています。', 'warn');
+    }
+  }).catch(function (err) {
+    console.error('migration failed', err);
+    showToast('旧データの移行に失敗しました。旧データは保持されています。', 'error');
+  });
 }
 
-function parseQrText(text) {
-  text = normalizeText(text);
-  var d = {};
-  var dateRes = parseDate(text);
-  if (dateRes) { d.date = dateRes.date; d.sortKey = dateRes.sortKey; }
-  var nameM = text.match(/\u6c0f\u540d\s*[\uff1a:]\s*(.+)/);
-  if (nameM) d.name = nameM[1].trim().replace(/^-$/, '');
-  var docM = text.match(/\u62c5\u5f53\u533b\s*[\uff1a:]\s*(.+)/);
-  if (docM) d.doctor = docM[1].trim().replace(/^-$/, '');
-  var mhdM = text.match(/\u982d\u75db\u304c\u3042\u3063\u305f\u65e5\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
-  if (mhdM) d.mhd = parseInt(mhdM[1]);
-  var mmdM = text.match(/\u75db\u307f\u6b62\u3081(?:\u3092)?\u670d\u7528(?:\u3057\u305f)?\u65e5\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
-  if (mmdM) d.mmd = parseInt(mmdM[1]);
-  var ncM = text.match(/\u30b9\u30c3\u30ad\u30ea\u305b\u305a\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
-  if (ncM) d.notClearDays = parseInt(ncM[1]);
-  var clM = text.match(/\u30b9\u30c3\u30ad\u30ea\s*[\uff1a:]?\s*(?:\u7d04)?\s*(\d+)\s*\u65e5/);
-  if (clM) d.clearDays = parseInt(clM[1]);
-  var hit6M = text.match(/\u3010HIT-6\u3011\s*(\d+)\u70b9\s*(\S+)/);
-  if (hit6M) { d.hit6 = parseInt(hit6M[1]); d.hit6Verdict = hit6M[2]; }
-  else if (text.match(/\u3010HIT-6\u3011\s*\u672a\u5b8c/)) { d.hit6 = null; }
-  var mibs4M = text.match(/\u3010MIBS-4\u3011\s*(\d+)\u70b9\s*(\S+)/);
-  if (mibs4M) { d.mibs4 = parseInt(mibs4M[1]); d.mibs4Verdict = mibs4M[2]; }
-  else if (text.match(/\u3010MIBS-4\u3011\s*\u672a\u5b8c/)) { d.mibs4 = null; }
-  var hit6A = text.match(/\u3010HIT-6\u3011[^\n]*\n\u56de\u7b54\s*[\uff1a:]\s*([0-9,\-]+)/);
-  if (hit6A) d.hit6Answers = hit6A[1];
-  var mibs4A = text.match(/\u3010MIBS-4\u3011[^\n]*\n\u56de\u7b54\s*[\uff1a:]\s*([0-9,\-]+)/);
-  if (mibs4A) d.mibs4Answers = mibs4A[1];
-  var noteM = text.match(/\u3010\u5099\u8003\u3011\s*([\s\S]*)/);
-  if (noteM) d.note = noteM[1].trim();
-  d.id = Date.now() + '_' + Math.random().toString(36).slice(2,6);
-  d.rawText = text;
-  return d;
+function checkStorageQuota() {
+  if (!(navigator.storage && navigator.storage.estimate)) return;
+  navigator.storage.estimate().then(function (est) {
+    if (!est.quota) return;
+    var ratio = est.usage / est.quota;
+    var el = document.getElementById('storage-warning');
+    if (ratio > 0.85) {
+      el.textContent = '&#x26A0; ストレージ残量が少なくなっています（使用率 ' + Math.round(ratio * 100) + '%）。バックアップを取ってから不要なデータの削除を検討してください。';
+      el.innerHTML = el.textContent;
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }).catch(function () {});
 }
 
-// ===== QR Scanner (iOS-safe) =====
+// ===== FileMaker連携（契約v1のCSVを inbox フォルダへ書き出す） =====
+var fmSupportsFS = ('showDirectoryPicker' in window);
+
+function fmUnexportedRecords() {
+  return allRecordsCache.filter(function (r) { return !r.fmExportedAt; });
+}
+
+function fmSetBanner(msg, type) {
+  var el = document.getElementById('fm-banner');
+  if (!el) return;
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.className = 'storage-warning no-print' + (type === 'error' ? ' fm-banner-error' : '');
+  el.classList.remove('hidden');
+}
+
+function fmUpdateStatusUI() {
+  var countEl = document.getElementById('fm-unexported-count');
+  var statusEl = document.getElementById('fm-folder-status');
+  if (!countEl) return;
+  var n = fmUnexportedRecords().length;
+  countEl.textContent = '未書き出し: ' + n + '件';
+  var setupBtn = document.getElementById('fm-setup-btn');
+  if (setupBtn) setupBtn.style.display = fmSupportsFS ? '' : 'none';
+  if (!fmSupportsFS) {
+    statusEl.textContent = 'このブラウザはフォルダ自動書き出しに対応していません（Chrome/Edgeを推奨）。「FileMaker用CSVを保存」で手動書き出ししてください。';
+    return;
+  }
+  idbMetaGet('fmDirHandle').then(function (handle) {
+    if (!handle) { statusEl.textContent = 'フォルダ未設定'; return; }
+    return handle.queryPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm === 'granted') {
+        statusEl.textContent = 'フォルダ: ' + (handle.name || '(設定済み)') + ' / ' + FM_FILENAME;
+        fmSetBanner(null);
+      } else {
+        statusEl.textContent = 'フォルダ: ' + (handle.name || '(設定済み)') + '（アクセス許可が必要です）';
+        fmSetBanner('FileMaker書き出しフォルダへのアクセス許可が切れています。「アクセスを許可」ボタンから再許可してください。未書き出し ' + n + '件。', 'error');
+      }
+    });
+  }).catch(function () { statusEl.textContent = 'フォルダ情報の取得に失敗しました'; });
+}
+
+function fmSetupFolder() {
+  if (!fmSupportsFS) { showToast('このブラウザはフォルダ選択に対応していません', 'error'); return; }
+  window.showDirectoryPicker({ id: 'headache-fm-inbox', mode: 'readwrite' }).then(function (handle) {
+    return handle.requestPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm !== 'granted') { showToast('書き込み許可が得られませんでした', 'error'); return; }
+      return idbMetaSet('fmDirHandle', handle).then(function () {
+        showToast('FileMaker書き出しフォルダを設定しました', 'success');
+        fmUpdateStatusUI();
+        fmAutoExport({ requestPermission: false });
+      });
+    });
+  }).catch(function (err) {
+    if (err && err.name === 'AbortError') return; // ユーザーがキャンセル
+    reportWriteError(err, 'フォルダ設定');
+  });
+}
+
+function fmRequestPermissionAgain() {
+  idbMetaGet('fmDirHandle').then(function (handle) {
+    if (!handle) { showToast('フォルダが未設定です', 'error'); return; }
+    return handle.requestPermission({ mode: 'readwrite' }).then(function (perm) {
+      fmUpdateStatusUI();
+      if (perm === 'granted') {
+        showToast('アクセス許可を再取得しました', 'success');
+        fmAutoExport({ requestPermission: false });
+      } else {
+        showToast('許可が得られませんでした', 'error');
+      }
+    });
+  });
+}
+
+// requestPermission: true の場合のみ（ユーザー操作起点でのみ）許可を要求する。
+// QR登録直後の自動呼び出しでは false を渡し、許可切れの場合は静かに諦めずbannerで明示する。
+function fmAutoExport(opts) {
+  opts = opts || {};
+  if (!fmSupportsFS) return Promise.resolve();
+  return idbMetaGet('fmDirHandle').then(function (handle) {
+    if (!handle) return; // 未設定 = 機能未使用
+    return handle.queryPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm !== 'granted' && opts.requestPermission) {
+        return handle.requestPermission({ mode: 'readwrite' }).then(function (p2) { perm = p2; return perm; });
+      }
+      return perm;
+    }).then(function (perm) {
+      if (perm !== 'granted') { fmUpdateStatusUI(); return; }
+      var unexported = fmUnexportedRecords();
+      if (!unexported.length) { fmUpdateStatusUI(); return; }
+      return handle.getFileHandle(FM_FILENAME, { create: true }).then(function (fileHandle) {
+        return fileHandle.getFile().then(function (file) { return file.text(); }).then(function (existingText) {
+          var merged = P.appendFileMakerCsv(existingText, unexported);
+          return fileHandle.createWritable().then(function (writable) {
+            return writable.write(merged).then(function () { return writable.close(); });
+          });
+        });
+      }).then(function () {
+        var now = new Date().toISOString();
+        unexported.forEach(function (r) { r.fmExportedAt = now; });
+        return idbPutMany(unexported).then(function () {
+          allRecordsCache.forEach(function (r) {
+            var m = unexported.find(function (u) { return u.id === r.id; });
+            if (m) r.fmExportedAt = now;
+          });
+          fmUpdateStatusUI();
+        });
+      });
+    });
+  }).catch(function (err) {
+    console.error('fmAutoExport failed', err);
+    fmSetBanner('FileMaker用CSVの書き込みに失敗しました（' + (err && err.message ? err.message : err) + '）。「再書き出し」で再試行してください。', 'error');
+  });
+}
+
+function fmManualDownload() {
+  var unexported = fmUnexportedRecords();
+  if (!unexported.length) { showToast('未書き出しのデータはありません', 'warn'); return; }
+  var csv = P.buildFileMakerCsv(unexported);
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = FM_FILENAME;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(unexported.length + '件を書き出しました', 'success');
+  if (confirm(unexported.length + '件を書き出し済みとしてマークしますか？\n（マークすると次回のダウンロードには含まれなくなります）')) {
+    var now = new Date().toISOString();
+    unexported.forEach(function (r) { r.fmExportedAt = now; });
+    idbPutMany(unexported).then(function () { fmUpdateStatusUI(); }).catch(function (err) { reportWriteError(err, '書き出し済みマーク'); });
+  }
+}
+
+function reportWriteError(err, context) {
+  console.error(context, err);
+  showToast((context || '保存') + 'に失敗しました。ストレージの空き容量を確認してください。', 'error');
+}
+
+// ===== QR Scanner (iOS-safe, continuous mode) =====
 var html5QrCode = null;
 var scannerRunning = false;
+var lastScanText = null;
+var lastScanAt = 0;
+var DEDUPE_MS = 3000;
 
 function openScanner() {
   document.getElementById('scanner-modal').classList.remove('hidden');
   document.getElementById('scanner-status').textContent = '';
   document.getElementById('qr-reader').innerHTML = '';
   document.getElementById('live-camera-btn').style.display = '';
+  document.getElementById('continuous-row').style.display = 'none';
   document.getElementById('qr-file-input').value = '';
+  lastScanText = null; lastScanAt = 0;
+}
+
+function isContinuous() {
+  var cb = document.getElementById('continuous-checkbox');
+  return cb ? cb.checked : true;
 }
 
 function startLiveCamera() {
@@ -305,16 +628,24 @@ function startLiveCamera() {
     { facingMode: 'environment' },
     { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
     function onSuccess(decodedText) {
-      stopLiveCamera(function() {
-        closeScanner();
-        addRecord(decodedText);
-      });
+      var now = Date.now();
+      if (decodedText === lastScanText && (now - lastScanAt) < DEDUPE_MS) return;
+      lastScanText = decodedText; lastScanAt = now;
+      if (isContinuous()) {
+        addRecord(decodedText, { keepScannerOpen: true });
+      } else {
+        stopLiveCamera(function () {
+          closeScanner();
+          addRecord(decodedText, {});
+        });
+      }
     },
     function onError() {}
-  ).then(function() {
+  ).then(function () {
     scannerRunning = true;
     statusEl.textContent = 'QRコードをかざしてください';
-  }).catch(function(err) {
+    document.getElementById('continuous-row').style.display = 'flex';
+  }).catch(function (err) {
     scannerRunning = false;
     statusEl.textContent = 'カメラを起動できませんでした。画像選択をお使いください。';
     document.getElementById('live-camera-btn').style.display = '';
@@ -326,18 +657,18 @@ function startLiveCamera() {
 function stopLiveCamera(callback) {
   if (html5QrCode && scannerRunning) {
     scannerRunning = false;
-    html5QrCode.stop().then(function() {
+    html5QrCode.stop().then(function () {
       html5QrCode.clear();
       html5QrCode = null;
       if (callback) callback();
-    }).catch(function() {
+    }).catch(function () {
       html5QrCode = null;
       scannerRunning = false;
       if (callback) callback();
     });
   } else {
     if (html5QrCode) {
-      try { html5QrCode.clear(); } catch(e) {}
+      try { html5QrCode.clear(); } catch (e) {}
       html5QrCode = null;
     }
     scannerRunning = false;
@@ -346,7 +677,7 @@ function stopLiveCamera(callback) {
 }
 
 function closeScanner() {
-  stopLiveCamera(function() {
+  stopLiveCamera(function () {
     document.getElementById('scanner-modal').classList.add('hidden');
     document.getElementById('qr-reader').innerHTML = '';
   });
@@ -360,12 +691,12 @@ function onFileSelected(event) {
 
   var reader = new Html5Qrcode('qr-reader-file-tmp');
   reader.scanFile(file, true)
-    .then(function(decodedText) {
+    .then(function (decodedText) {
       statusEl.textContent = '';
       closeScanner();
-      addRecord(decodedText);
+      addRecord(decodedText, {});
     })
-    .catch(function(err) {
+    .catch(function (err) {
       statusEl.textContent = 'QRコードを読み取れませんでした。再度撮影してください。';
       console.error('File scan error:', err);
     });
@@ -383,13 +714,15 @@ function submitManualInput() {
   var text = document.getElementById('manual-text').value.trim();
   if (!text) { showToast('テキストを入力してください', 'error'); return; }
   closeManualInput();
-  addRecord(text);
+  addRecord(text, {});
 }
 
 // ===== Date Fix Modal =====
 var pendingRecord = null;
-function openDateFix(rec, rawText) {
+var pendingOpts = {};
+function openDateFix(rec, rawText, opts) {
   pendingRecord = rec;
+  pendingOpts = opts || {};
   document.getElementById('datefix-rawtext').textContent = rawText || '(空)';
   document.getElementById('fix-year').value = '';
   document.getElementById('fix-month').value = '';
@@ -407,95 +740,151 @@ function cancelDateFix() {
   document.getElementById('datefix-modal').classList.add('hidden');
 }
 function submitDateFix() {
-  var y = parseInt(document.getElementById('fix-year').value);
-  var m = parseInt(document.getElementById('fix-month').value);
-  var d = parseInt(document.getElementById('fix-day').value);
+  var y = parseInt(document.getElementById('fix-year').value, 10);
+  var m = parseInt(document.getElementById('fix-month').value, 10);
+  var d = parseInt(document.getElementById('fix-day').value, 10);
   if (!y || !m || !d || y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) {
     showToast('正しい日付を入力してください', 'error'); return;
   }
   if (!pendingRecord) return;
-  pendingRecord.date = y + '/' + String(m).padStart(2,'0') + '/' + String(d).padStart(2,'0');
+  pendingRecord.date = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
   pendingRecord.sortKey = y * 10000 + m * 100 + d;
   document.getElementById('datefix-modal').classList.add('hidden');
-  saveRecord(pendingRecord);
+  saveRecord(pendingRecord, pendingOpts);
   pendingRecord = null;
 }
 
-function addRecord(text) {
+function addRecord(text, opts) {
+  opts = opts || {};
   if (text.indexOf('頭痛チェックシート') < 0 && text.indexOf('HIT-6') < 0 && text.indexOf('MIBS-4') < 0) {
     showToast('頭痛チェックシートのQRではありません', 'error');
     return;
   }
-  var rec = parseQrText(text);
+  var rec = P.parseQrText(text);
   if (!rec.date) {
-    // 日付が読めなかった → 入力ダイアログを開く
-    openDateFix(rec, text);
+    openDateFix(rec, text, opts);
     return;
   }
-  saveRecord(rec);
+  saveRecord(rec, opts);
 }
 
-function saveRecord(rec) {
-  var data = loadData();
-  var dup = data.find(function(r){ return r.date === rec.date && r.name === rec.name; });
-  if (dup) {
-    if (!confirm(rec.date + ' ' + (rec.name||'') + ' のデータは既に存在します。上書きしますか？')) return;
-    var idx = data.indexOf(dup);
-    data[idx] = rec;
-  } else {
-    data.push(rec);
-  }
-  data.sort(function(a,b){ return (a.sortKey||0) - (b.sortKey||0); });
-  saveData(data);
-  showToast(rec.date + ' のデータを登録しました', 'success');
-  refreshAll();
+function saveRecord(rec, opts) {
+  opts = opts || {};
+  idbGetAll().then(function (data) {
+    var dup = data.find(function (r) { return r.patientKey === rec.patientKey && r.date === rec.date; });
+    if (dup) {
+      if (dup.rawText === rec.rawText) {
+        showToast((P.patientLabel(rec)) + ' ' + rec.date + ' は既に登録済みです', 'warn');
+        selectPatient(rec.patientKey);
+        return;
+      }
+      var overwrite = confirm(rec.date + ' ' + P.patientLabel(rec) + ' のデータは既に存在します。上書きしますか？');
+      if (!overwrite) return;
+      rec.id = dup.id;
+      rec.registeredAt = dup.registeredAt || new Date().toISOString();
+      rec.fmExportedAt = null;
+    } else {
+      rec.registeredAt = new Date().toISOString();
+    }
+    return idbPut(rec).then(function () {
+      showToast(P.patientLabel(rec) + ' ' + rec.date + ' を登録しました', 'success');
+      selectPatient(rec.patientKey);
+      refreshAll();
+      checkStorageQuota();
+      fmAutoExport({ requestPermission: false });
+    }).catch(function (err) { reportWriteError(err, '登録'); });
+  }).catch(function (err) { reportWriteError(err, '登録'); });
 }
 
+function deleteRecordById(id) {
+  return idbDelete(id).then(function () {
+    refreshAll();
+    showToast('削除しました', 'warn');
+  }).catch(function (err) { reportWriteError(err, '削除'); });
+}
 function deleteRecord(id) {
   if (!confirm('このレコードを削除しますか？')) return;
-  var data = loadData().filter(function(r){ return r.id !== id; });
-  saveData(data);
-  refreshAll();
-  showToast('削除しました', 'warn');
+  deleteRecordById(id);
 }
 
 function clearAllData() {
   if (!confirm('全データを削除しますか？この操作は取り消せません。')) return;
-  saveData([]);
-  refreshAll();
-  showToast('全データを削除しました', 'warn');
+  idbClear().then(function () {
+    try { localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+    currentPatientKey = null;
+    refreshAll();
+    showToast('全データを削除しました', 'warn');
+  }).catch(function (err) { reportWriteError(err, '削除'); });
+}
+
+// ===== Patient search / selection =====
+var currentPatientKey = null; // null = 未選択（全レコード一覧のみ、グラフ非表示）
+var allRecordsCache = [];
+var patientIndexCache = []; // [{key,label,count}]
+
+function rebuildPatientIndex(data) {
+  var map = {};
+  data.forEach(function (r) {
+    if (!map[r.patientKey]) map[r.patientKey] = { key: r.patientKey, label: P.patientLabel(r), count: 0 };
+    map[r.patientKey].count++;
+  });
+  return Object.keys(map).map(function (k) { return map[k]; });
+}
+
+function onPatientSearchInput() {
+  var q = document.getElementById('patient-search').value.trim();
+  var box = document.getElementById('patient-suggestions');
+  if (!q) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  var ql = q.toLowerCase();
+  var matches = patientIndexCache.filter(function (p) {
+    return p.label.toLowerCase().indexOf(ql) >= 0;
+  }).slice(0, 30);
+  if (!matches.length) {
+    box.innerHTML = '<div class="sugg-empty">該当する患者がいません</div>';
+  } else {
+    box.innerHTML = matches.map(function (p) {
+      return '<div class="sugg-item" data-key="' + P.escapeHtml(p.key) + '">' + P.escapeHtml(p.label) + ' <span style="color:#aaa">(' + p.count + '件)</span></div>';
+    }).join('');
+    Array.prototype.slice.call(box.querySelectorAll('.sugg-item')).forEach(function (el) {
+      el.addEventListener('click', function () {
+        selectPatient(el.getAttribute('data-key'));
+        box.classList.add('hidden');
+        document.getElementById('patient-search').value = '';
+      });
+    });
+  }
+  box.classList.remove('hidden');
+}
+
+function selectPatient(key) {
+  currentPatientKey = key;
+  var cur = document.getElementById('patient-current');
+  var found = patientIndexCache.find(function (p) { return p.key === key; });
+  cur.textContent = found ? ('選択中: ' + found.label) : '';
+  renderCharts();
+  renderSummary();
+  if (tableOpen) renderTable();
+}
+
+function clearPatientSelection() {
+  currentPatientKey = null;
+  document.getElementById('patient-current').textContent = '';
+  document.getElementById('patient-search').value = '';
+  renderCharts();
+  renderSummary();
+  if (tableOpen) renderTable();
 }
 
 function getFilteredData() {
-  var data = loadData();
-  var sel = document.getElementById('patient-select').value;
-  if (sel === '__all__') return data;
-  return data.filter(function(r){ return (r.name || '不明') === sel; });
-}
-
-function applyFilter() { refreshAll(); }
-
-function updatePatientSelect() {
-  var data = loadData();
-  var nameSet = {};
-  data.forEach(function(r){ nameSet[r.name || '不明'] = true; });
-  var names = Object.keys(nameSet);
-  var sel = document.getElementById('patient-select');
-  var cur = sel.value;
-  sel.innerHTML = '<option value="__all__">全患者</option>';
-  names.forEach(function(n) {
-    var o = document.createElement('option');
-    o.value = n; o.textContent = n;
-    sel.appendChild(o);
-  });
-  if (names.indexOf(cur) >= 0 || cur === '__all__') sel.value = cur;
+  if (!currentPatientKey) return allRecordsCache;
+  return allRecordsCache.filter(function (r) { return r.patientKey === currentPatientKey; });
 }
 
 function showToast(msg, type) {
   var t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast toast-' + type + ' show';
-  setTimeout(function(){ t.className = 'toast'; }, 2500);
+  setTimeout(function () { t.className = 'toast'; }, 2500);
 }
 
 var tableOpen = false;
@@ -510,17 +899,23 @@ function verdictBadge(score, type) {
   if (score == null) return '-';
   var cls, label;
   if (type === 'hit6') {
-    if (score >= 60) { cls='severe'; label='重度'; }
-    else if (score >= 56) { cls='high'; label='かなり'; }
-    else if (score >= 50) { cls='moderate'; label='ある程度'; }
-    else { cls='mild'; label='影響なし'; }
+    if (score >= 60) { cls = 'severe'; label = '重度'; }
+    else if (score >= 56) { cls = 'high'; label = 'かなり'; }
+    else if (score >= 50) { cls = 'moderate'; label = 'ある程度'; }
+    else { cls = 'mild'; label = '影響なし'; }
   } else {
-    if (score >= 5) { cls='severe'; label='重度'; }
-    else if (score >= 3) { cls='high'; label='中等度'; }
-    else if (score >= 1) { cls='moderate'; label='軽度'; }
-    else { cls='mild'; label='支障なし'; }
+    if (score >= 5) { cls = 'severe'; label = '重度'; }
+    else if (score >= 3) { cls = 'high'; label = '中等度'; }
+    else if (score >= 1) { cls = 'moderate'; label = '軽度'; }
+    else { cls = 'mild'; label = '支障なし'; }
   }
   return '<span class="badge badge-' + cls + '">' + label + '</span>';
+}
+
+function daysSum(r) {
+  var parts = [r.mhd, r.notClearDays, r.clearDays].filter(function (v) { return v != null; });
+  if (!parts.length) return null;
+  return (r.mhd || 0) + (r.notClearDays || 0) + (r.clearDays || 0);
 }
 
 function renderTable() {
@@ -530,134 +925,411 @@ function renderTable() {
     tbody.innerHTML = '<tr><td colspan="8" style="color:#aaa">データなし</td></tr>';
     return;
   }
-  tbody.innerHTML = data.map(function(r) {
+  tbody.innerHTML = data.map(function (r) {
+    var sum = daysSum(r);
+    var warn = (sum != null && sum > 28) ? ' <span class="warn-flag" title="内訳合計が28日を超えています">&#x26A0;</span>' : '';
     return '<tr>' +
-      '<td>' + (r.date||'-') + '</td>' +
-      '<td>' + (r.name||'-') + '</td>' +
-      '<td>' + (r.mhd!=null?r.mhd:'-') + '</td>' +
-      '<td>' + (r.mmd!=null?r.mmd:'-') + '</td>' +
-      '<td>' + (r.hit6!=null?r.hit6+'点 '+verdictBadge(r.hit6,'hit6'):'-') + '</td>' +
-      '<td>' + (r.mibs4!=null?r.mibs4+'点 '+verdictBadge(r.mibs4,'mibs4'):'-') + '</td>' +
-      '<td style="font-size:11px">' + (r.hit6Verdict||'') + ' / ' + (r.mibs4Verdict||'') + '</td>' +
-      '<td><button class="btn btn-danger btn-sm" onclick="deleteRecord(\'' + r.id + '\')">削除</button></td>' +
+      '<td>' + P.escapeHtml(r.date || '-') + '</td>' +
+      '<td>' + P.escapeHtml(P.patientLabel(r)) + '</td>' +
+      '<td>' + (r.mhd != null ? r.mhd : '-') + warn + '</td>' +
+      '<td>' + (r.mmd != null ? r.mmd : '-') + '</td>' +
+      '<td>' + (r.hit6 != null ? r.hit6 + '点 ' + verdictBadge(r.hit6, 'hit6') : '-') + '</td>' +
+      '<td>' + (r.mibs4 != null ? r.mibs4 + '点 ' + verdictBadge(r.mibs4, 'mibs4') : '-') + '</td>' +
+      '<td style="font-size:11px">' + P.escapeHtml((r.hit6Verdict || '') + ' / ' + (r.mibs4Verdict || '')) + '</td>' +
+      '<td class="no-print"><button class="btn btn-sm btn-secondary" onclick="openDetail(\'' + r.id + '\')">詳細</button> <button class="btn btn-sm btn-danger" onclick="deleteRecord(\'' + r.id + '\')">削除</button></td>' +
       '</tr>';
   }).join('');
 }
 
-var chartHit6, chartMhd, chartScatter, chartMibs4;
+// ===== Summary =====
+function diffHtml(cur, prev, biggerIsWorse) {
+  if (cur == null || prev == null) return '';
+  var d = cur - prev;
+  if (d === 0) return '<span class="diff diff-flat">±0</span>';
+  var worse = biggerIsWorse ? d > 0 : d < 0;
+  return '<span class="diff ' + (worse ? 'diff-up' : 'diff-down') + '">' + (d > 0 ? '+' : '') + d + '</span>';
+}
 
-function shortDate(dateStr) {
-  if (!dateStr) return '';
-  var p = dateStr.split('/');
-  return p[0].slice(2) + '/' + parseInt(p[1]) + '/' + parseInt(p[2]);
+function renderSummary() {
+  var card = document.getElementById('summary-card');
+  if (!currentPatientKey) { card.style.display = 'none'; return; }
+  var data = getFilteredData().slice().sort(function (a, b) { return (a.sortKey || 0) - (b.sortKey || 0); });
+  if (!data.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  var first = data[0], last = data[data.length - 1];
+  var prev = data.length > 1 ? data[data.length - 2] : null;
+  var fields = [
+    { key: 'mhd', label: 'MHD（頭痛日数）' },
+    { key: 'mmd', label: 'MMD（服薬日数）' },
+    { key: 'hit6', label: 'HIT-6' },
+    { key: 'mibs4', label: 'MIBS-4' }
+  ];
+  document.getElementById('summary-grid').innerHTML = fields.map(function (f) {
+    return '<div class="summary-cell">' +
+      '<div class="lbl">' + f.label + '</div>' +
+      '<div class="val">' + (last[f.key] != null ? last[f.key] : '-') + '</div>' +
+      '<div class="diff-line" style="font-size:11px;color:#888">初回 ' + (first[f.key] != null ? first[f.key] : '-') + ' → 前回比 ' + diffHtml(last[f.key], prev ? prev[f.key] : null, true) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+// ===== Charts =====
+var chartHit6, chartDays, chartScatter, chartMibs4;
+
+function toISODate(dateStr) {
+  return dateStr ? dateStr.replace(/\//g, '-') : null;
+}
+
+function bandPlugin(bands) {
+  return {
+    id: 'bands_' + Math.random().toString(36).slice(2),
+    beforeDraw: function (chart) {
+      var ctx = chart.ctx, area = chart.chartArea, y = chart.scales.y;
+      if (!area || !y) return;
+      ctx.save();
+      bands.forEach(function (b) {
+        var top = y.getPixelForValue(b.max);
+        var bottom = y.getPixelForValue(b.min);
+        ctx.fillStyle = b.color;
+        ctx.fillRect(area.left, top, area.right - area.left, bottom - top);
+      });
+      ctx.restore();
+    }
+  };
+}
+
+var HIT6_BANDS = [
+  { min: 36, max: 49, color: 'rgba(39,174,96,0.10)' },
+  { min: 50, max: 55, color: 'rgba(212,172,13,0.10)' },
+  { min: 56, max: 59, color: 'rgba(211,84,0,0.10)' },
+  { min: 60, max: 78, color: 'rgba(192,57,43,0.10)' }
+];
+var MIBS4_BANDS = [
+  { min: 0, max: 0, color: 'rgba(39,174,96,0.10)' },
+  { min: 1, max: 2, color: 'rgba(212,172,13,0.10)' },
+  { min: 3, max: 4, color: 'rgba(211,84,0,0.10)' },
+  { min: 5, max: 12, color: 'rgba(192,57,43,0.10)' }
+];
+
+function medLine10Plugin() {
+  return {
+    id: 'medline10',
+    afterDatasetsDraw: function (chart) {
+      var y = chart.scales.y, area = chart.chartArea;
+      if (!y || !area) return;
+      var ctx = chart.ctx;
+      var yPix = y.getPixelForValue(10);
+      ctx.save();
+      ctx.strokeStyle = '#999';
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(area.left, yPix);
+      ctx.lineTo(area.right, yPix);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#777';
+      ctx.font = '11px sans-serif';
+      ctx.fillText('服薬10日', area.right - 60, yPix - 4);
+      ctx.restore();
+    }
+  };
 }
 
 function renderCharts() {
-  var data = getFilteredData();
+  var data = getFilteredData().slice().sort(function (a, b) { return (a.sortKey || 0) - (b.sortKey || 0); });
   var cnt = document.getElementById('record-count');
   cnt.textContent = data.length + '件';
 
+  var emptyText = document.getElementById('empty-charts-text');
+  if (!currentPatientKey) {
+    document.getElementById('empty-charts').style.display = 'block';
+    emptyText.textContent = data.length ? '患者を選択してください（' + patientIndexCache.length + '名 / ' + data.length + '件）' : 'データがありません。QRコードを読み取ってください。';
+    ['hit6-tab', 'days-tab', 'scatter-tab', 'mibs4-tab'].forEach(function (id) {
+      document.getElementById(id).style.display = 'none';
+    });
+    return;
+  }
   if (!data.length) {
     document.getElementById('empty-charts').style.display = 'block';
-    ['hit6-tab','mhd-tab','scatter-tab','mibs4-tab'].forEach(function(id) {
+    emptyText.textContent = 'この患者のデータがありません。';
+    ['hit6-tab', 'days-tab', 'scatter-tab', 'mibs4-tab'].forEach(function (id) {
       document.getElementById(id).style.display = 'none';
     });
     return;
   }
   document.getElementById('empty-charts').style.display = 'none';
-  document.querySelectorAll('.tab-panel').forEach(function(p) {
+  document.querySelectorAll('.tab-panel').forEach(function (p) {
     if (p.classList.contains('active')) p.style.display = 'block';
   });
 
-  var labels = data.map(function(r){ return shortDate(r.date); });
-  var hit6Data = data.map(function(r){ return r.hit6; });
-  var mibs4Data = data.map(function(r){ return r.mibs4; });
-  var mhdData = data.map(function(r){ return r.mhd; });
-  var mmdData = data.map(function(r){ return r.mmd; });
+  var timePoints = data.filter(function (r) { return !!r.date; });
+  var hit6Points = timePoints.filter(function (r) { return r.hit6 != null; }).map(function (r) { return { x: toISODate(r.date), y: r.hit6 }; });
+  var mibs4Points = timePoints.filter(function (r) { return r.mibs4 != null; }).map(function (r) { return { x: toISODate(r.date), y: r.mibs4 }; });
 
   var pointColor = '#4a6f8e';
-  var lineColor = '#4a6f8e';
 
   if (chartHit6) chartHit6.destroy();
-  var hit6Valid = hit6Data.filter(function(v){ return v != null; });
-  var hit6Min = hit6Valid.length ? Math.max(36, Math.min.apply(null, hit6Valid) - 4) : 36;
-  var hit6Max = hit6Valid.length ? Math.min(78, Math.max.apply(null, hit6Valid) + 4) : 78;
   chartHit6 = new Chart(document.getElementById('hit6Chart'), {
     type: 'line',
-    data: { labels: labels, datasets: [{ label: 'HIT-6', data: hit6Data, borderColor: lineColor, backgroundColor: pointColor, pointBackgroundColor: pointColor, pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
-    options: { responsive: true, plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function(v){ return v != null ? v : ''; } } }, scales: { y: { min: hit6Min, max: hit6Max, title: { display: true, text: 'HIT-6', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, x: { title: { display: true, text: '日付', font: { size: 14 } }, grid: { display: false }, ticks: { maxRotation: 45, minRotation: 30 } } }, layout: { padding: { top: 24 } } },
-    plugins: [ChartDataLabels]
+    data: { datasets: [{ label: 'HIT-6', data: hit6Points, borderColor: pointColor, backgroundColor: pointColor, pointBackgroundColor: pointColor, pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
+    options: {
+      responsive: true,
+      parsing: false,
+      plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
+      scales: { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } }, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6' } } },
+      layout: { padding: { top: 24 } }
+    },
+    plugins: [ChartDataLabels, bandPlugin(HIT6_BANDS)]
   });
 
   if (chartMibs4) chartMibs4.destroy();
   chartMibs4 = new Chart(document.getElementById('mibs4Chart'), {
     type: 'line',
-    data: { labels: labels, datasets: [{ label: 'MIBS-4', data: mibs4Data, borderColor: '#4f9d6b', backgroundColor: '#4f9d6b', pointBackgroundColor: '#4f9d6b', pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
-    options: { responsive: true, plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function(v){ return v != null ? v : ''; } } }, scales: { y: { min: 0, max: 12, title: { display: true, text: 'MIBS-4', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, x: { title: { display: true, text: '日付', font: { size: 14 } }, grid: { display: false }, ticks: { maxRotation: 45, minRotation: 30 } } }, layout: { padding: { top: 24 } } },
-    plugins: [ChartDataLabels]
+    data: { datasets: [{ label: 'MIBS-4', data: mibs4Points, borderColor: '#4f9d6b', backgroundColor: '#4f9d6b', pointBackgroundColor: '#4f9d6b', pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
+    options: {
+      responsive: true,
+      parsing: false,
+      plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
+      scales: { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } }, y: { min: 0, max: 12, title: { display: true, text: 'MIBS-4' } } },
+      layout: { padding: { top: 24 } }
+    },
+    plugins: [ChartDataLabels, bandPlugin(MIBS4_BANDS)]
   });
 
-  if (chartMhd) chartMhd.destroy();
-  chartMhd = new Chart(document.getElementById('mhdChart'), {
-    type: 'bar',
-    data: { labels: labels, datasets: [ { label: 'MHD (頭痛日数)', data: mhdData, backgroundColor: 'rgba(232,132,42,0.7)', borderColor: '#e8842a', borderWidth: 1 }, { label: 'MMD (服薬日数)', data: mmdData, backgroundColor: 'rgba(79,157,107,0.7)', borderColor: '#4f9d6b', borderWidth: 1 } ] },
-    options: { responsive: true, plugins: { legend: { position: 'top' }, datalabels: { anchor: 'end', align: 'top', offset: 2, color: '#333', font: { size: 11, weight: 'bold' }, formatter: function(v){ return v != null ? v : ''; } } }, scales: { y: { min: 0, max: 28, title: { display: true, text: '日数', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, x: { title: { display: true, text: '日付', font: { size: 14 } }, grid: { display: false }, ticks: { maxRotation: 45, minRotation: 30 } } }, layout: { padding: { top: 24 } } },
-    plugins: [ChartDataLabels]
+  // 日数積み上げ棒（頭痛日/スッキリせず/スッキリ）+ 服薬日の線
+  var dayLabels = timePoints.map(function (r) { return toISODate(r.date); });
+  if (chartDays) chartDays.destroy();
+  chartDays = new Chart(document.getElementById('daysChart'), {
+    data: {
+      labels: dayLabels,
+      datasets: [
+        { type: 'bar', label: '頭痛日', data: timePoints.map(function (r) { return r.mhd; }), backgroundColor: 'rgba(232,132,42,0.75)', stack: 'days' },
+        { type: 'bar', label: 'スッキリせず', data: timePoints.map(function (r) { return r.notClearDays; }), backgroundColor: 'rgba(212,172,13,0.75)', stack: 'days' },
+        { type: 'bar', label: 'スッキリ', data: timePoints.map(function (r) { return r.clearDays; }), backgroundColor: 'rgba(79,157,107,0.75)', stack: 'days' },
+        { type: 'line', label: '服薬日(MMD)', data: timePoints.map(function (r) { return r.mmd; }), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 5, borderWidth: 2, yAxisID: 'y' }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' }, datalabels: { display: false } },
+      scales: { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } }, y: { min: 0, max: 28, stacked: true, title: { display: true, text: '日数' } } },
+      layout: { padding: { top: 10 } }
+    },
+    plugins: [medLine10Plugin()]
   });
 
   if (chartScatter) chartScatter.destroy();
-  var scatterData = data.filter(function(r){ return r.hit6 != null && r.mibs4 != null; }).map(function(r){ return { x: r.mibs4, y: r.hit6, date: shortDate(r.date) }; });
+  var scatterData = data.filter(function (r) { return r.hit6 != null && r.mibs4 != null; }).map(function (r) { return { x: r.mibs4, y: r.hit6, date: r.date }; });
   chartScatter = new Chart(document.getElementById('scatterChart'), {
     type: 'scatter',
     data: { datasets: [{ label: 'HIT-6 × MIBS-4', data: scatterData, backgroundColor: pointColor, pointRadius: 7, pointHoverRadius: 10 }] },
-    options: { responsive: true, plugins: { legend: { display: false }, datalabels: { align: 'right', anchor: 'end', offset: 6, color: '#555', font: { size: 10 }, formatter: function(v, ctx) { var pt = ctx.dataset.data[ctx.dataIndex]; return pt.date + '\n' + pt.x + ';' + pt.y; } }, tooltip: { callbacks: { label: function(ctx) { var pt = ctx.raw; return pt.date + ' — MIBS-4: ' + pt.x + ', HIT-6: ' + pt.y; } } } }, scales: { x: { min: 0, max: 12, title: { display: true, text: 'MIBS-4', font: { size: 14 } }, grid: { color: '#e8e8e8' } }, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6', font: { size: 14 } }, grid: { color: '#e8e8e8' } } }, layout: { padding: { top: 20, right: 40 } } },
-    plugins: [ ChartDataLabels, { id: 'refLines', beforeDraw: function(chart) { var ctx = chart.ctx; var xAxis = chart.scales.x; var yAxis = chart.scales.y; ctx.save(); ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1; ctx.setLineDash([6,4]); var y60 = yAxis.getPixelForValue(60); ctx.beginPath(); ctx.moveTo(xAxis.left, y60); ctx.lineTo(xAxis.right, y60); ctx.stroke(); var x5 = xAxis.getPixelForValue(5); ctx.beginPath(); ctx.moveTo(x5, yAxis.top); ctx.lineTo(x5, yAxis.bottom); ctx.stroke(); ctx.restore(); } } ]
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        datalabels: { align: 'right', anchor: 'end', offset: 6, color: '#555', font: { size: 10 }, formatter: function (v, ctx) { var pt = ctx.dataset.data[ctx.dataIndex]; return (pt.date || '') ; } },
+        tooltip: { callbacks: { label: function (ctx) { var pt = ctx.raw; return (pt.date || '') + ' — MIBS-4: ' + pt.x + ', HIT-6: ' + pt.y; } } }
+      },
+      scales: { x: { min: 0, max: 12, title: { display: true, text: 'MIBS-4' } }, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6' } } },
+      layout: { padding: { top: 20, right: 40 } }
+    },
+    plugins: [ChartDataLabels]
   });
 }
 
 function switchTab(tabId, btn) {
-  document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
-  document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); p.style.display = 'none'; });
+  document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); p.style.display = 'none'; });
   btn.classList.add('active');
   var panel = document.getElementById(tabId);
   panel.classList.add('active');
   panel.style.display = 'block';
 }
 
+// ===== CSV =====
 function exportCsv() {
   var data = getFilteredData();
   if (!data.length) { showToast('データがありません', 'error'); return; }
-  var header = '日付,氏名,担当医,MHD,MMD,スッキリせず,スッキリ,HIT-6,HIT-6判定,MIBS-4,MIBS-4判定,備考';
-  var rows = data.map(function(r) {
-    return [r.date, r.name||'', r.doctor||'', r.mhd!=null?r.mhd:'', r.mmd!=null?r.mmd:'',
-      r.notClearDays!=null?r.notClearDays:'', r.clearDays!=null?r.clearDays:'',
-      r.hit6!=null?r.hit6:'', r.hit6Verdict||'', r.mibs4!=null?r.mibs4:'', r.mibs4Verdict||'',
-      (r.note||'').replace(/"/g,'""')]
-      .map(function(v){ return '"'+v+'"'; }).join(',');
+  var header = '記入日,氏名,生年月日,性別,病院ID,担当医,MHD,MMD,スッキリせず,スッキリ,HIT-6,HIT-6回答,HIT-6判定,MIBS-4,MIBS-4回答,MIBS-4判定,備考';
+  var rows = data.map(function (r) {
+    return [
+      r.date || '', r.name || '', (r.birthDate ? r.birthDate.display : ''), r.sex || '', r.hospitalId || '', r.doctor || '',
+      r.mhd != null ? r.mhd : '', r.mmd != null ? r.mmd : '',
+      r.notClearDays != null ? r.notClearDays : '', r.clearDays != null ? r.clearDays : '',
+      r.hit6 != null ? r.hit6 : '', (r.hit6Answers || []).join('/'), r.hit6Verdict || '',
+      r.mibs4 != null ? r.mibs4 : '', (r.mibs4Answers || []).join('/'), r.mibs4Verdict || '',
+      (r.note || '').replace(/"/g, '""')
+    ].map(function (v) { return '"' + v + '"'; }).join(',');
   });
-  var csv = '\uFEFF' + header + '\n' + rows.join('\n');
+  var csv = '﻿' + header + '\n' + rows.join('\n');
   var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = 'headache_data_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.download = 'headache_data_' + new Date().toISOString().slice(0, 10) + '.csv';
   a.click();
   URL.revokeObjectURL(url);
   showToast('CSVをダウンロードしました', 'success');
 }
 
-function refreshAll() {
-  updatePatientSelect();
-  renderCharts();
-  if (tableOpen) renderTable();
+// ===== Backup (export / import merge) =====
+function openBackupModal() { document.getElementById('backup-modal').classList.remove('hidden'); }
+function closeBackupModal() { document.getElementById('backup-modal').classList.add('hidden'); }
+
+function exportBackup() {
+  idbGetAll().then(function (data) {
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'headache_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('バックアップを書き出しました', 'success');
+  }).catch(function (err) { reportWriteError(err, 'バックアップ書き出し'); });
 }
+
+function onBackupFileSelected(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function () {
+    var incoming;
+    try { incoming = JSON.parse(reader.result); } catch (e) { showToast('JSONの読み込みに失敗しました', 'error'); return; }
+    if (!Array.isArray(incoming)) { showToast('バックアップ形式が不正です', 'error'); return; }
+    mergeBackup(incoming.map(function (r) { return P.migrateRecord(r); }));
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function ensureRegisteredAt(rec) {
+  if (!rec.registeredAt) rec.registeredAt = new Date().toISOString();
+  return rec;
+}
+
+function mergeBackup(incoming) {
+  incoming.forEach(ensureRegisteredAt);
+  idbGetAll().then(function (existing) {
+    var byKey = {};
+    existing.forEach(function (r) { byKey[r.patientKey + '|' + r.date] = r; });
+    var conflicts = incoming.filter(function (r) { return r.date && byKey[r.patientKey + '|' + r.date]; });
+    var fresh = incoming.filter(function (r) { return !(r.date && byKey[r.patientKey + '|' + r.date]); });
+    var toWrite = fresh.slice();
+    if (conflicts.length) {
+      var overwrite = confirm(conflicts.length + '件が既存データと重複しています（患者+記入日が一致）。上書きしますか？\n「キャンセル」を選ぶと重複分はスキップして残りだけ取り込みます。');
+      if (overwrite) {
+        conflicts.forEach(function (r) {
+          var existRec = byKey[r.patientKey + '|' + r.date];
+          r.id = existRec.id;
+          toWrite.push(r);
+        });
+      }
+    }
+    if (!toWrite.length) { showToast('取り込めるデータがありませんでした', 'warn'); return; }
+    idbPutMany(toWrite).then(function () {
+      showToast(toWrite.length + '件のデータを取り込みました', 'success');
+      closeBackupModal();
+      refreshAll();
+      checkStorageQuota();
+    }).catch(function (err) { reportWriteError(err, 'バックアップ取り込み'); });
+  }).catch(function (err) { reportWriteError(err, 'バックアップ取り込み'); });
+}
+
+// ===== Record detail =====
+function answerLine(qDef, opts, answerIdx, idx) {
+  var chosen = (answerIdx != null && opts[answerIdx - 1] != null) ? opts[answerIdx - 1] : '(未回答)';
+  return '<div class="detail-q"><div class="qn">' + (idx + 1) + '. ' + P.escapeHtml(qDef.q) + '</div>' +
+    (qDef.note ? '<div class="note">' + P.escapeHtml(qDef.note) + '</div>' : '') +
+    '<div class="ans">回答: ' + P.escapeHtml(chosen) + '</div></div>';
+}
+
+function openDetail(id) {
+  idbGetAll().then(function (all) {
+    var r = all.find(function (x) { return x.id === id; });
+    if (!r) return;
+    var body = document.getElementById('detail-body');
+    var html = '';
+    html += '<div class="patient-info-line"><b>患者:</b> ' + P.escapeHtml(P.patientLabel(r)) + '</div>';
+    html += '<div class="patient-info-line"><b>性別:</b> ' + P.escapeHtml(r.sex || '-') + ' &nbsp; <b>担当医:</b> ' + P.escapeHtml(r.doctor || '-') + '</div>';
+    html += '<div class="patient-info-line"><b>記入日:</b> <input type="date" id="detail-date-input" value="' + (r.date ? toISODate(r.date) : '') + '"></div>';
+    html += '<hr style="margin:10px 0">';
+    html += '<h4 style="margin-bottom:6px">HIT-6' + (r.hit6 != null ? '（' + r.hit6 + '点 ' + P.escapeHtml(r.hit6Verdict || '') + '）' : '（未完）') + '</h4>';
+    html += P.HIT6_Q.map(function (q, i) { return answerLine(q, q.opts, r.hit6Answers ? r.hit6Answers[i] : null, i); }).join('');
+    html += '<h4 style="margin:10px 0 6px">MIBS-4' + (r.mibs4 != null ? '（' + r.mibs4 + '点 ' + P.escapeHtml(r.mibs4Verdict || '') + '）' : '（未完）') + '</h4>';
+    html += P.MIBS4_Q.map(function (q, i) { return answerLine(q, P.MIBS4_OPTS, r.mibs4Answers ? r.mibs4Answers[i] : null, i); }).join('');
+    html += '<h4 style="margin:10px 0 6px">備考</h4><div style="font-size:12px;white-space:pre-wrap">' + P.escapeHtml(r.note || '(なし)') + '</div>';
+    html += '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:#888">生テキスト</summary><pre class="debug-text">' + P.escapeHtml(r.rawText || '') + '</pre></details>';
+    body.innerHTML = html;
+
+    document.getElementById('detail-save-btn').onclick = function () {
+      var v = document.getElementById('detail-date-input').value;
+      if (!v) { showToast('日付を入力してください', 'error'); return; }
+      var parts = v.split('-');
+      r.date = parts[0] + '/' + parts[1] + '/' + parts[2];
+      r.sortKey = parseInt(parts[0], 10) * 10000 + parseInt(parts[1], 10) * 100 + parseInt(parts[2], 10);
+      idbPut(r).then(function () {
+        showToast('記入日を更新しました', 'success');
+        closeDetail();
+        refreshAll();
+      }).catch(function (err) { reportWriteError(err, '更新'); });
+    };
+    document.getElementById('detail-delete-btn').onclick = function () {
+      if (!confirm('このレコードを削除しますか？')) return;
+      deleteRecordById(r.id).then(function () { closeDetail(); });
+    };
+    document.getElementById('detail-modal').classList.remove('hidden');
+  });
+}
+function closeDetail() { document.getElementById('detail-modal').classList.add('hidden'); }
+
+// ===== Print =====
+function printReport() {
+  if (!currentPatientKey) {
+    showToast('印刷する患者を選択してください', 'error');
+    return;
+  }
+  window.print();
+}
+
+// ===== Refresh =====
+function refreshAll() {
+  return idbGetAll().then(function (data) {
+    allRecordsCache = data;
+    patientIndexCache = rebuildPatientIndex(data);
+    if (currentPatientKey && !patientIndexCache.find(function (p) { return p.key === currentPatientKey; })) {
+      currentPatientKey = null;
+      document.getElementById('patient-current').textContent = '';
+    }
+    renderCharts();
+    renderSummary();
+    if (tableOpen) renderTable();
+    fmUpdateStatusUI();
+  }).catch(function (err) { reportWriteError(err, '読み込み'); });
+}
+
+document.addEventListener('click', function (e) {
+  var box = document.getElementById('patient-suggestions');
+  var input = document.getElementById('patient-search');
+  if (box && !box.contains(e.target) && e.target !== input) box.classList.add('hidden');
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { closeScanner(); closeManualInput(); closeDetail(); closeBackupModal(); }
+});
 
 var tmpDiv = document.createElement('div');
 tmpDiv.id = 'qr-reader-file-tmp';
 tmpDiv.style.display = 'none';
 document.body.appendChild(tmpDiv);
 
-refreshAll();
+window.__appLoadStart = performance.now();
+migrateFromLocalStorage().then(function () {
+  return refreshAll();
+}).then(function () {
+  checkStorageQuota();
+  window.__appLoadMs = performance.now() - window.__appLoadStart;
+});
 </script>
 </body>
 </html>
