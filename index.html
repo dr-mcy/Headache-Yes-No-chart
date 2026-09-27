@@ -30,6 +30,7 @@ h1{text-align:center;font-size:20px;margin:10px 0 2px;color:#4a6fa5}
 .actions .spacer{flex:1 1 auto}
 .storage-warning{background:#fff1e3;border:1px solid #d35400;color:#a04000;border-radius:6px;padding:8px 12px;font-size:12px;margin-bottom:12px}
 .storage-warning.hidden{display:none}
+.storage-warning.fm-banner-error{background:#fdecea;border-color:#c0392b;color:#a93226}
 .patient-search-wrap{position:relative;margin-bottom:4px}
 .patient-search-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .patient-search-row input[type="text"]{flex:1 1 220px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit}
@@ -125,6 +126,7 @@ table.data-table tr:hover{background:#eef2f7}
   <p class="subtitle">Headache-Yes-No QRコードを読み取り、HIT-6 / MIBS-4 / MHD / MMD を可視化</p>
 
   <div class="storage-warning hidden no-print" id="storage-warning"></div>
+  <div class="storage-warning hidden no-print" id="fm-banner"></div>
 
   <div class="card no-print">
     <div class="actions">
@@ -146,6 +148,19 @@ table.data-table tr:hover{background:#eef2f7}
       <div class="patient-suggestions hidden" id="patient-suggestions"></div>
     </div>
     <div class="patient-current" id="patient-current"></div>
+  </div>
+
+  <div class="card no-print">
+    <h2>&#x1F3E5; FileMaker連携</h2>
+    <p style="font-size:12px;color:#666;margin-bottom:6px" id="fm-folder-status">確認中...</p>
+    <div class="actions" style="margin-bottom:0">
+      <button class="btn btn-secondary btn-sm" onclick="fmSetupFolder()" id="fm-setup-btn">&#x1F4C1; 書き出しフォルダを選択</button>
+      <button class="btn btn-secondary btn-sm" onclick="fmRequestPermissionAgain()">&#x1F511; アクセスを許可</button>
+      <button class="btn btn-secondary btn-sm" onclick="fmAutoExport({requestPermission:true})">&#x1F504; 未書き出し分を再書き出し</button>
+      <button class="btn btn-secondary btn-sm" onclick="fmManualDownload()" id="fm-manual-btn">&#x1F4E5; FileMaker用CSVを保存</button>
+      <span class="spacer"></span>
+      <span id="fm-unexported-count" style="font-size:12px;color:#888">未書き出し: 0件</span>
+    </div>
   </div>
 
   <div class="card" id="summary-card" style="display:none">
@@ -294,9 +309,11 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 var DB_NAME = 'headache_db';
-var DB_VERSION = 1;
+var DB_VERSION = 2;
 var STORE = 'records';
+var META_STORE = 'meta';
 var LEGACY_KEY = 'headache_qr_data';
+var FM_FILENAME = 'headache_inbox.csv';
 var P = window.HeadacheParser;
 var dbPromise = null;
 
@@ -311,11 +328,36 @@ function openDb() {
         store.createIndex('patientKey', 'patientKey', { unique: false });
         store.createIndex('sortKey', 'sortKey', { unique: false });
       }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: 'key' });
+      }
     };
     req.onsuccess = function (e) { resolve(e.target.result); };
     req.onerror = function (e) { reject(e.target.error); };
   });
   return dbPromise;
+}
+
+function idbMetaGet(key) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(META_STORE, 'readonly');
+      var req = tx.objectStore(META_STORE).get(key);
+      req.onsuccess = function () { resolve(req.result ? req.result.value : null); };
+      req.onerror = function () { reject(req.error); };
+    });
+  });
+}
+
+function idbMetaSet(key, value) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(META_STORE, 'readwrite');
+      tx.objectStore(META_STORE).put({ key: key, value: value });
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+    });
+  });
 }
 
 function idbGetAll() {
@@ -379,7 +421,7 @@ function migrateFromLocalStorage() {
     try { localStorage.removeItem(LEGACY_KEY); } catch (e) {}
     return Promise.resolve();
   }
-  var migrated = legacy.map(function (r) { return P.migrateRecord(r); });
+  var migrated = legacy.map(function (r) { return ensureRegisteredAt(P.migrateRecord(r)); });
   return idbPutMany(migrated).then(function () {
     return idbGetAll();
   }).then(function (all) {
@@ -411,6 +453,140 @@ function checkStorageQuota() {
       el.classList.add('hidden');
     }
   }).catch(function () {});
+}
+
+// ===== FileMaker連携（契約v1のCSVを inbox フォルダへ書き出す） =====
+var fmSupportsFS = ('showDirectoryPicker' in window);
+
+function fmUnexportedRecords() {
+  return allRecordsCache.filter(function (r) { return !r.fmExportedAt; });
+}
+
+function fmSetBanner(msg, type) {
+  var el = document.getElementById('fm-banner');
+  if (!el) return;
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.className = 'storage-warning no-print' + (type === 'error' ? ' fm-banner-error' : '');
+  el.classList.remove('hidden');
+}
+
+function fmUpdateStatusUI() {
+  var countEl = document.getElementById('fm-unexported-count');
+  var statusEl = document.getElementById('fm-folder-status');
+  if (!countEl) return;
+  var n = fmUnexportedRecords().length;
+  countEl.textContent = '未書き出し: ' + n + '件';
+  var setupBtn = document.getElementById('fm-setup-btn');
+  if (setupBtn) setupBtn.style.display = fmSupportsFS ? '' : 'none';
+  if (!fmSupportsFS) {
+    statusEl.textContent = 'このブラウザはフォルダ自動書き出しに対応していません（Chrome/Edgeを推奨）。「FileMaker用CSVを保存」で手動書き出ししてください。';
+    return;
+  }
+  idbMetaGet('fmDirHandle').then(function (handle) {
+    if (!handle) { statusEl.textContent = 'フォルダ未設定'; return; }
+    return handle.queryPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm === 'granted') {
+        statusEl.textContent = 'フォルダ: ' + (handle.name || '(設定済み)') + ' / ' + FM_FILENAME;
+        fmSetBanner(null);
+      } else {
+        statusEl.textContent = 'フォルダ: ' + (handle.name || '(設定済み)') + '（アクセス許可が必要です）';
+        fmSetBanner('FileMaker書き出しフォルダへのアクセス許可が切れています。「アクセスを許可」ボタンから再許可してください。未書き出し ' + n + '件。', 'error');
+      }
+    });
+  }).catch(function () { statusEl.textContent = 'フォルダ情報の取得に失敗しました'; });
+}
+
+function fmSetupFolder() {
+  if (!fmSupportsFS) { showToast('このブラウザはフォルダ選択に対応していません', 'error'); return; }
+  window.showDirectoryPicker({ id: 'headache-fm-inbox', mode: 'readwrite' }).then(function (handle) {
+    return handle.requestPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm !== 'granted') { showToast('書き込み許可が得られませんでした', 'error'); return; }
+      return idbMetaSet('fmDirHandle', handle).then(function () {
+        showToast('FileMaker書き出しフォルダを設定しました', 'success');
+        fmUpdateStatusUI();
+        fmAutoExport({ requestPermission: false });
+      });
+    });
+  }).catch(function (err) {
+    if (err && err.name === 'AbortError') return; // ユーザーがキャンセル
+    reportWriteError(err, 'フォルダ設定');
+  });
+}
+
+function fmRequestPermissionAgain() {
+  idbMetaGet('fmDirHandle').then(function (handle) {
+    if (!handle) { showToast('フォルダが未設定です', 'error'); return; }
+    return handle.requestPermission({ mode: 'readwrite' }).then(function (perm) {
+      fmUpdateStatusUI();
+      if (perm === 'granted') {
+        showToast('アクセス許可を再取得しました', 'success');
+        fmAutoExport({ requestPermission: false });
+      } else {
+        showToast('許可が得られませんでした', 'error');
+      }
+    });
+  });
+}
+
+// requestPermission: true の場合のみ（ユーザー操作起点でのみ）許可を要求する。
+// QR登録直後の自動呼び出しでは false を渡し、許可切れの場合は静かに諦めずbannerで明示する。
+function fmAutoExport(opts) {
+  opts = opts || {};
+  if (!fmSupportsFS) return Promise.resolve();
+  return idbMetaGet('fmDirHandle').then(function (handle) {
+    if (!handle) return; // 未設定 = 機能未使用
+    return handle.queryPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm !== 'granted' && opts.requestPermission) {
+        return handle.requestPermission({ mode: 'readwrite' }).then(function (p2) { perm = p2; return perm; });
+      }
+      return perm;
+    }).then(function (perm) {
+      if (perm !== 'granted') { fmUpdateStatusUI(); return; }
+      var unexported = fmUnexportedRecords();
+      if (!unexported.length) { fmUpdateStatusUI(); return; }
+      return handle.getFileHandle(FM_FILENAME, { create: true }).then(function (fileHandle) {
+        return fileHandle.getFile().then(function (file) { return file.text(); }).then(function (existingText) {
+          var merged = P.appendFileMakerCsv(existingText, unexported);
+          return fileHandle.createWritable().then(function (writable) {
+            return writable.write(merged).then(function () { return writable.close(); });
+          });
+        });
+      }).then(function () {
+        var now = new Date().toISOString();
+        unexported.forEach(function (r) { r.fmExportedAt = now; });
+        return idbPutMany(unexported).then(function () {
+          allRecordsCache.forEach(function (r) {
+            var m = unexported.find(function (u) { return u.id === r.id; });
+            if (m) r.fmExportedAt = now;
+          });
+          fmUpdateStatusUI();
+        });
+      });
+    });
+  }).catch(function (err) {
+    console.error('fmAutoExport failed', err);
+    fmSetBanner('FileMaker用CSVの書き込みに失敗しました（' + (err && err.message ? err.message : err) + '）。「再書き出し」で再試行してください。', 'error');
+  });
+}
+
+function fmManualDownload() {
+  var unexported = fmUnexportedRecords();
+  if (!unexported.length) { showToast('未書き出しのデータはありません', 'warn'); return; }
+  var csv = P.buildFileMakerCsv(unexported);
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = FM_FILENAME;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(unexported.length + '件を書き出しました', 'success');
+  if (confirm(unexported.length + '件を書き出し済みとしてマークしますか？\n（マークすると次回のダウンロードには含まれなくなります）')) {
+    var now = new Date().toISOString();
+    unexported.forEach(function (r) { r.fmExportedAt = now; });
+    idbPutMany(unexported).then(function () { fmUpdateStatusUI(); }).catch(function (err) { reportWriteError(err, '書き出し済みマーク'); });
+  }
 }
 
 function reportWriteError(err, context) {
@@ -605,12 +781,17 @@ function saveRecord(rec, opts) {
       var overwrite = confirm(rec.date + ' ' + P.patientLabel(rec) + ' のデータは既に存在します。上書きしますか？');
       if (!overwrite) return;
       rec.id = dup.id;
+      rec.registeredAt = dup.registeredAt || new Date().toISOString();
+      rec.fmExportedAt = null;
+    } else {
+      rec.registeredAt = new Date().toISOString();
     }
     return idbPut(rec).then(function () {
       showToast(P.patientLabel(rec) + ' ' + rec.date + ' を登録しました', 'success');
       selectPatient(rec.patientKey);
       refreshAll();
       checkStorageQuota();
+      fmAutoExport({ requestPermission: false });
     }).catch(function (err) { reportWriteError(err, '登録'); });
   }).catch(function (err) { reportWriteError(err, '登録'); });
 }
@@ -1022,7 +1203,13 @@ function onBackupFileSelected(event) {
   event.target.value = '';
 }
 
+function ensureRegisteredAt(rec) {
+  if (!rec.registeredAt) rec.registeredAt = new Date().toISOString();
+  return rec;
+}
+
 function mergeBackup(incoming) {
+  incoming.forEach(ensureRegisteredAt);
   idbGetAll().then(function (existing) {
     var byKey = {};
     existing.forEach(function (r) { byKey[r.patientKey + '|' + r.date] = r; });
@@ -1117,6 +1304,7 @@ function refreshAll() {
     renderCharts();
     renderSummary();
     if (tableOpen) renderTable();
+    fmUpdateStatusUI();
   }).catch(function (err) { reportWriteError(err, '読み込み'); });
 }
 
