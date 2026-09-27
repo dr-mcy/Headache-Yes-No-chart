@@ -271,6 +271,78 @@
     return out;
   }
 
+  // ===== FileMaker連携 CSV契約 v1 =====
+  // 列順・書式は固定。変更する場合は契約バージョンを上げること。
+  var FM_CONTRACT_VERSION = 1;
+  var FM_HEADER = [
+    '取込キー', '記入日', '病院ID', '氏名', '生年月日', '性別', '担当医',
+    '頭痛日数', '服薬日数', 'スッキリせず日数', 'スッキリ日数',
+    'HIT6合計', 'HIT6判定', 'HIT6_Q1', 'HIT6_Q2', 'HIT6_Q3', 'HIT6_Q4', 'HIT6_Q5', 'HIT6_Q6',
+    'MIBS4合計', 'MIBS4判定', 'MIBS4_Q1', 'MIBS4_Q2', 'MIBS4_Q3', 'MIBS4_Q4',
+    '備考', '登録日時', '契約版'
+  ];
+
+  function csvField(v) {
+    if (v == null) v = '';
+    return '"' + String(v).replace(/"/g, '""') + '"';
+  }
+
+  // 生年月日は y/m/d が全て揃っている場合のみ "YYYY/MM/DD" を出力し、
+  // 一部でも未入力（"-/-/-" 等）なら空欄にする。
+  function fmBirthDate(bd) {
+    if (!bd || bd.y == null || bd.m == null || bd.d == null) return '';
+    return bd.y + '/' + String(bd.m).padStart(2, '0') + '/' + String(bd.d).padStart(2, '0');
+  }
+
+  // 備考の改行はリテラル "\n"(2文字) に置換する。
+  function fmNote(note) {
+    if (!note) return '';
+    return note.replace(/\r\n|\r|\n/g, '\\n');
+  }
+
+  function fmImportKey(rec) {
+    return (rec.patientKey || '') + '|' + (rec.date || '');
+  }
+
+  function buildFileMakerRow(rec) {
+    var hit6A = rec.hit6Answers || [];
+    var mibs4A = rec.mibs4Answers || [];
+    var fields = [
+      fmImportKey(rec), rec.date || '', rec.hospitalId || '', rec.name || '', fmBirthDate(rec.birthDate), rec.sex || '', rec.doctor || '',
+      rec.mhd != null ? rec.mhd : '', rec.mmd != null ? rec.mmd : '', rec.notClearDays != null ? rec.notClearDays : '', rec.clearDays != null ? rec.clearDays : '',
+      rec.hit6 != null ? rec.hit6 : '', rec.hit6Verdict || '',
+      hit6A[0] != null ? hit6A[0] : '', hit6A[1] != null ? hit6A[1] : '', hit6A[2] != null ? hit6A[2] : '', hit6A[3] != null ? hit6A[3] : '', hit6A[4] != null ? hit6A[4] : '', hit6A[5] != null ? hit6A[5] : '',
+      rec.mibs4 != null ? rec.mibs4 : '', rec.mibs4Verdict || '',
+      mibs4A[0] != null ? mibs4A[0] : '', mibs4A[1] != null ? mibs4A[1] : '', mibs4A[2] != null ? mibs4A[2] : '', mibs4A[3] != null ? mibs4A[3] : '',
+      fmNote(rec.note), rec.registeredAt || '', FM_CONTRACT_VERSION
+    ];
+    return fields.map(csvField).join(',');
+  }
+
+  function buildFileMakerHeaderLine() {
+    return FM_HEADER.map(csvField).join(',');
+  }
+
+  // records の全件から新規にCSV(UTF-8, BOMなし, CRLF)を組み立てる。
+  function buildFileMakerCsv(records) {
+    var lines = [buildFileMakerHeaderLine()];
+    (records || []).forEach(function (r) { lines.push(buildFileMakerRow(r)); });
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  // 既存ファイル内容(existingText)の末尾に records を追記したCSV全文を返す。
+  // existingTextが空ならヘッダーから新規作成する。
+  function appendFileMakerCsv(existingText, records) {
+    records = records || [];
+    if (!existingText || !existingText.trim()) {
+      return buildFileMakerCsv(records);
+    }
+    if (!records.length) return existingText;
+    var trimmed = existingText.replace(/\r?\n$/, '');
+    var newRows = records.map(buildFileMakerRow).join('\r\n');
+    return trimmed + '\r\n' + newRows + '\r\n';
+  }
+
   var api = {
     HIT6_Q: HIT6_Q,
     HIT6_PT: HIT6_PT,
@@ -293,7 +365,14 @@
     patientKey: patientKey,
     patientLabel: patientLabel,
     parseQrText: parseQrText,
-    migrateRecord: migrateRecord
+    migrateRecord: migrateRecord,
+    FM_CONTRACT_VERSION: FM_CONTRACT_VERSION,
+    FM_HEADER: FM_HEADER,
+    fmImportKey: fmImportKey,
+    buildFileMakerRow: buildFileMakerRow,
+    buildFileMakerHeaderLine: buildFileMakerHeaderLine,
+    buildFileMakerCsv: buildFileMakerCsv,
+    appendFileMakerCsv: appendFileMakerCsv
   };
 
   if (typeof module !== 'undefined' && module.exports) {
