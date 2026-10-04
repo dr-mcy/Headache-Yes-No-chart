@@ -264,7 +264,8 @@
     if (!rec) return rec;
     var out = {};
     for (var k in rec) out[k] = rec[k];
-    if (rec.rawText) {
+    // 編集済み(editedAt あり)の記録は補完しない。編集で意図的に空にした値が rawText から復活するのを防ぐ。
+    if (rec.rawText && !rec.editedAt) {
       var reparsed = parseQrText(rec.rawText);
       for (var key in reparsed) {
         if (out[key] === undefined || out[key] === null) out[key] = reparsed[key];
@@ -277,6 +278,173 @@
       if (pv) out.sortKey = pv.sortKey;
     }
     return out;
+  }
+
+  // ===== 記録の編集（詳細画面からの手修正） =====
+  // 実在する日付か（1900〜2100年）。
+  function isRealDate(y, m, d) {
+    if (!(y >= 1900 && y <= 2100 && m >= 1 && m <= 12 && d >= 1)) return false;
+    var dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+  }
+
+  // 整数 or 空(null)に正規化。{ v: 整数|null } または { bad: true }。
+  function intOrNull(v) {
+    if (v == null) return { v: null };
+    if (typeof v === 'number') return Number.isInteger(v) ? { v: v } : { bad: true };
+    var s = normalizeText(v).trim();
+    if (s === '' || s === '-') return { v: null };
+    if (!/^\d+$/.test(s)) return { bad: true };
+    return { v: parseInt(s, 10) };
+  }
+
+  function cleanStr(v) {
+    if (v == null) return null;
+    var s = String(v).trim();
+    return s === '' ? null : s;
+  }
+
+  var EDIT_DAY_FIELDS = [
+    { key: 'mhd', label: '頭痛があった日' },
+    { key: 'mmd', label: '痛み止め服用日' },
+    { key: 'notClearDays', label: 'スッキリせず' },
+    { key: 'clearDays', label: 'スッキリ' }
+  ];
+
+  // edits を検証・正規化する。edits に無い（undefined の）項目は rec の値のまま。
+  // 返り値: { errors: [], warnings: [], value: {...} }。
+  function normalizeEdits(rec, edits) {
+    rec = rec || {};
+    edits = edits || {};
+    var errors = [], warnings = [], out = {};
+    function has(k) { return edits[k] !== undefined; }
+
+    ['name', 'sex', 'hospitalId', 'doctor'].forEach(function (k) {
+      out[k] = has(k) ? cleanStr(edits[k]) : (rec[k] == null ? null : rec[k]);
+    });
+
+    // 記入日（必須・実在日付）
+    if (has('date')) {
+      var ds = edits.date == null ? '' : normalizeText(edits.date).trim();
+      var dm = ds.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+      if (!ds) errors.push('記入日は必須です');
+      else if (!dm || !isRealDate(parseInt(dm[1], 10), parseInt(dm[2], 10), parseInt(dm[3], 10))) errors.push('記入日が実在する日付ではありません');
+      else {
+        var y = parseInt(dm[1], 10), mo = parseInt(dm[2], 10), da = parseInt(dm[3], 10);
+        out.dateObj = { y: y, m: mo, d: da, iso: y + '/' + String(mo).padStart(2, '0') + '/' + String(da).padStart(2, '0'), sortKey: y * 10000 + mo * 100 + da };
+      }
+    } else {
+      var pv = parseDateValue(rec.date);
+      if (pv) out.dateObj = pv; else errors.push('記入日は必須です');
+    }
+
+    // 生年月日（y/m/d の一部だけでも可。全部空なら null）
+    if (has('birthDate')) {
+      var b = edits.birthDate;
+      if (b == null) out.birthDate = null;
+      else {
+        var by = intOrNull(b.y), bm = intOrNull(b.m), bd = intOrNull(b.d);
+        if (by.bad || bm.bad || bd.bad) errors.push('生年月日は数字で入力してください');
+        else if (by.v != null && (by.v < 1900 || by.v > 2100)) errors.push('生年月日の年は1900〜2100で入力してください');
+        else if (bm.v != null && (bm.v < 1 || bm.v > 12)) errors.push('生年月日の月は1〜12で入力してください');
+        else if (bd.v != null && (bd.v < 1 || bd.v > 31)) errors.push('生年月日の日は1〜31で入力してください');
+        else if (by.v != null && bm.v != null && bd.v != null && !isRealDate(by.v, bm.v, bd.v)) errors.push('生年月日が実在する日付ではありません');
+        else if (by.v == null && bm.v == null && bd.v == null) out.birthDate = null;
+        else out.birthDate = {
+          y: by.v, m: bm.v, d: bd.v,
+          display: (by.v != null ? by.v : '-') + '/' + (bm.v != null ? bm.v : '-') + '/' + (bd.v != null ? bd.v : '-')
+        };
+      }
+    } else {
+      out.birthDate = rec.birthDate == null ? null : rec.birthDate;
+    }
+
+    // 日数 0〜28
+    EDIT_DAY_FIELDS.forEach(function (f) {
+      if (!has(f.key)) { out[f.key] = rec[f.key] == null ? null : rec[f.key]; return; }
+      var r = intOrNull(edits[f.key]);
+      if (r.bad || (r.v != null && (r.v < 0 || r.v > 28))) errors.push(f.label + 'は0〜28の整数で入力してください');
+      else out[f.key] = r.v;
+    });
+    // 合計の警告。服薬日は頭痛日の部分集合なので含めない（一覧の警告マークと同じ基準）。
+    var sum = (out.mhd || 0) + (out.notClearDays || 0) + (out.clearDays || 0);
+    if (sum > 28) warnings.push('頭痛があった日・スッキリせず・スッキリの合計が' + sum + '日で、28日を超えています');
+
+    // 回答（未回答 null 可。undefined なら変更しない）
+    function normAnswers(key, label, n, max) {
+      if (!has(key)) return undefined;
+      var arr = edits[key];
+      if (!Array.isArray(arr) || arr.length !== n) { errors.push(label + 'の回答は' + n + '問分が必要です'); return undefined; }
+      var res = [];
+      for (var i = 0; i < n; i++) {
+        var r = intOrNull(arr[i]);
+        if (r.bad || (r.v != null && (r.v < 1 || r.v > max))) { errors.push(label + ' 問' + (i + 1) + 'の回答が不正です'); return undefined; }
+        res.push(r.v);
+      }
+      return res;
+    }
+    out.hit6Answers = normAnswers('hit6Answers', 'HIT-6', 6, 5);
+    out.mibs4Answers = normAnswers('mibs4Answers', 'MIBS-4', 4, 6);
+
+    // 備考
+    if (has('note')) {
+      var nt = edits.note == null ? '' : String(edits.note).replace(/\r\n?/g, '\n').trim();
+      out.note = nt === '' ? null : nt;
+    } else {
+      out.note = rec.note == null ? null : rec.note;
+    }
+
+    return { errors: errors, warnings: warnings, value: out };
+  }
+
+  // 編集内容の検証。{ errors, warnings }（warnings は確認ダイアログ向け）。
+  function validateRecordEdits(rec, edits) {
+    var n = normalizeEdits(rec, edits);
+    return { errors: n.errors, warnings: n.warnings };
+  }
+
+  // 編集を適用した新しいレコードを返す（元の rec は変更しない）。不正な edits は Error を投げる。
+  // - HIT-6 / MIBS-4 は回答から再計算。全問回答時のみ点数と判定、未完は null。
+  // - patientKey / date / sortKey を再計算。rawText は元のまま（証跡）。editedAt を付与。
+  // - fmExportedAt を null に戻す（FileMaker へ再書き出し対象にする）。isDemo などその他は保持。
+  function applyRecordEdits(rec, edits, nowIso) {
+    var n = normalizeEdits(rec, edits);
+    if (n.errors.length) throw new Error(n.errors.join(' / '));
+    var v = n.value;
+    var out = {};
+    for (var k in rec) out[k] = rec[k];
+
+    out.name = v.name; out.sex = v.sex; out.hospitalId = v.hospitalId; out.doctor = v.doctor;
+    out.birthDate = v.birthDate;
+    out.date = v.dateObj.iso;
+    out.sortKey = v.dateObj.sortKey;
+    out.mhd = v.mhd; out.mmd = v.mmd; out.notClearDays = v.notClearDays; out.clearDays = v.clearDays;
+    out.note = v.note;
+
+    if (v.hit6Answers !== undefined) {
+      out.hit6Answers = v.hit6Answers;
+      var h6done = v.hit6Answers.every(function (a) { return a != null; });
+      out.hit6 = h6done ? sumPoints(v.hit6Answers, HIT6_PT) : null;
+      out.hit6Verdict = h6done ? hit6Verdict(out.hit6) : null;
+    }
+    if (v.mibs4Answers !== undefined) {
+      out.mibs4Answers = v.mibs4Answers;
+      var m4done = v.mibs4Answers.every(function (a) { return a != null; });
+      out.mibs4 = m4done ? sumPoints(v.mibs4Answers, MIBS4_PT) : null;
+      out.mibs4Verdict = m4done ? mibs4Verdict(out.mibs4) : null;
+    }
+
+    out.patientKey = patientKey(out);
+    out.editedAt = nowIso || new Date().toISOString();
+    out.fmExportedAt = null;
+    return out;
+  }
+
+  // 同じ患者キー+記入日の「別 id」の記録を返す（無ければ undefined）。編集後の重複判定用。
+  function findDuplicateRecord(records, rec) {
+    return (records || []).find(function (r) {
+      return r && r.id !== rec.id && r.patientKey === rec.patientKey && r.date === rec.date;
+    });
   }
 
   // ===== デモデータ（架空・固定） =====
@@ -443,6 +611,10 @@
     parseAppVersion: parseAppVersion,
     parseQrText: parseQrText,
     migrateRecord: migrateRecord,
+    isRealDate: isRealDate,
+    validateRecordEdits: validateRecordEdits,
+    applyRecordEdits: applyRecordEdits,
+    findDuplicateRecord: findDuplicateRecord,
     DEMO_HOSPITAL_ID: DEMO_HOSPITAL_ID,
     buildDemoTexts: buildDemoTexts,
     buildDemoRecords: buildDemoRecords,

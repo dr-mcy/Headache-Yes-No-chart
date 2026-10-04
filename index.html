@@ -106,6 +106,23 @@ table.data-table tr:hover{background:#eef2f7}
 .detail-q .ans{color:#333}
 .detail-q .note{color:#888;font-size:11px}
 .patient-info-line{font-size:13px;margin-bottom:4px}
+.edited-badge{display:inline-block;background:#e8eef7;color:#4a6fa5;font-size:10px;padding:0 5px;border-radius:8px;margin-left:4px;vertical-align:middle;border:1px solid #c5d3e6}
+.edit-form h4{margin:12px 0 6px;color:#4a6fa5;font-size:13px}
+.edit-form .ef-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.edit-form .ef-field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.edit-form .ef-field.full{grid-column:1/-1}
+.edit-form label{font-size:11px;color:#666}
+.edit-form input,.edit-form select,.edit-form textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;font-family:inherit;background:#fff;min-width:0}
+.edit-form textarea{min-height:80px;resize:vertical}
+.edit-form .ef-birth{display:flex;gap:6px;align-items:center}
+.edit-form .ef-q{margin-bottom:8px}
+.edit-form .ef-q .qn{font-size:12px;color:#333;margin-bottom:3px;line-height:1.4}
+.edit-error{background:#fdecea;border:1px solid #c0392b;color:#a93226;border-radius:6px;padding:8px 12px;font-size:13px;white-space:pre-line}
+.edit-error.hidden{display:none}
+.detail-footer{position:sticky;bottom:-20px;background:#fff;padding:10px 0 20px;margin-bottom:-20px}
+.detail-actions{margin-top:10px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.detail-actions .btn{width:auto}
+@media(max-width:600px){.edit-form .ef-grid{grid-template-columns:1fr}.edit-form .ef-grid.days{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){
   .container{padding:8px}
   .card{padding:12px}
@@ -287,10 +304,15 @@ table.data-table tr:hover{background:#eef2f7}
   <div class="modal-card wide">
     <h3>&#x1F4C4; 記録詳細</h3>
     <div id="detail-body"></div>
-    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-danger" id="detail-delete-btn">削除</button>
-      <button class="btn btn-secondary" onclick="closeDetail()">閉じる</button>
-      <button class="btn btn-primary" id="detail-save-btn">記入日を保存</button>
+    <div class="detail-footer">
+      <div class="edit-error hidden" id="detail-error" role="alert"></div>
+      <div class="detail-actions">
+        <button class="btn btn-danger" id="detail-delete-btn">削除</button>
+        <button class="btn btn-secondary" id="detail-close-btn" onclick="closeDetail()">閉じる</button>
+        <button class="btn btn-primary" id="detail-edit-btn">編集</button>
+        <button class="btn btn-secondary" id="detail-cancel-btn" style="display:none">キャンセル</button>
+        <button class="btn btn-primary" id="detail-save-btn" style="display:none">保存</button>
+      </div>
     </div>
   </div>
 </div>
@@ -317,7 +339,7 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 // ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
-var APP_VERSION = 'v1.3.0';
+var APP_VERSION = 'v1.4.0';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 var DB_NAME = 'headache_db';
@@ -1044,7 +1066,7 @@ function renderTable() {
     var sum = daysSum(r);
     var warn = (sum != null && sum > 28) ? ' <span class="warn-flag" title="内訳合計が28日を超えています">&#x26A0;</span>' : '';
     return '<tr>' +
-      '<td>' + P.escapeHtml(r.date || '-') + '</td>' +
+      '<td>' + P.escapeHtml(r.date || '-') + (r.editedAt ? '<span class="edited-badge" title="編集済み（' + P.escapeHtml(formatDateTime(r.editedAt)) + '）">編集</span>' : '') + '</td>' +
       '<td>' + P.escapeHtml(P.patientLabel(r)) + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</td>' +
       '<td>' + (r.mhd != null ? r.mhd : '-') + warn + '</td>' +
       '<td>' + (r.mmd != null ? r.mmd : '-') + '</td>' +
@@ -1367,36 +1389,170 @@ function answerLine(qDef, opts, answerIdx, idx) {
     '<div class="ans">回答: ' + P.escapeHtml(chosen) + '</div></div>';
 }
 
+function formatDateTime(iso) {
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso || '');
+  function z(n) { return String(n).padStart(2, '0'); }
+  return d.getFullYear() + '/' + z(d.getMonth() + 1) + '/' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+
+function detailShowError(msg) {
+  var el = document.getElementById('detail-error');
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function detailSetMode(editing) {
+  document.getElementById('detail-delete-btn').style.display = '';
+  document.getElementById('detail-close-btn').style.display = editing ? 'none' : '';
+  document.getElementById('detail-edit-btn').style.display = editing ? 'none' : '';
+  document.getElementById('detail-cancel-btn').style.display = editing ? '' : 'none';
+  document.getElementById('detail-save-btn').style.display = editing ? '' : 'none';
+  detailShowError(null);
+}
+
+function renderDetailView(r) {
+  var html = '';
+  html += '<div class="patient-info-line"><b>患者:</b> ' + P.escapeHtml(P.patientLabel(r)) + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</div>';
+  html += '<div class="patient-info-line"><b>性別:</b> ' + P.escapeHtml(r.sex || '-') + ' &nbsp; <b>担当医:</b> ' + P.escapeHtml(r.doctor || '-') + '</div>';
+  html += '<div class="patient-info-line"><b>記入日:</b> ' + P.escapeHtml(r.date || '-') + '</div>';
+  html += '<div class="patient-info-line"><b>頭痛:</b> ' + (r.mhd != null ? r.mhd : '-') + '日 &nbsp; <b>服薬:</b> ' + (r.mmd != null ? r.mmd : '-') + '日 &nbsp; <b>スッキリせず:</b> ' + (r.notClearDays != null ? r.notClearDays : '-') + '日 &nbsp; <b>スッキリ:</b> ' + (r.clearDays != null ? r.clearDays : '-') + '日</div>';
+  if (r.editedAt) html += '<div class="patient-info-line" id="detail-edited-line" style="color:#4a6fa5"><b>編集済み</b>（' + P.escapeHtml(formatDateTime(r.editedAt)) + '）</div>';
+  html += '<hr style="margin:10px 0">';
+  html += '<h4 style="margin-bottom:6px">HIT-6' + (r.hit6 != null ? '（' + r.hit6 + '点 ' + P.escapeHtml(r.hit6Verdict || '') + '）' : '（未完）') + '</h4>';
+  html += P.HIT6_Q.map(function (q, i) { return answerLine(q, q.opts, r.hit6Answers ? r.hit6Answers[i] : null, i); }).join('');
+  html += '<h4 style="margin:10px 0 6px">MIBS-4' + (r.mibs4 != null ? '（' + r.mibs4 + '点 ' + P.escapeHtml(r.mibs4Verdict || '') + '）' : '（未完）') + '</h4>';
+  html += P.MIBS4_Q.map(function (q, i) { return answerLine(q, P.MIBS4_OPTS, r.mibs4Answers ? r.mibs4Answers[i] : null, i); }).join('');
+  html += '<h4 style="margin:10px 0 6px">備考</h4><div style="font-size:12px;white-space:pre-wrap">' + P.escapeHtml(r.note || '(なし)') + '</div>';
+  html += '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:#888">生テキスト</summary><pre class="debug-text">' + P.escapeHtml(r.rawText || '') + '</pre></details>';
+  document.getElementById('detail-body').innerHTML = html;
+}
+
+function efOptions(labels, selected) {
+  var h = '<option value="">（未回答）</option>';
+  labels.forEach(function (lb, i) {
+    h += '<option value="' + (i + 1) + '"' + (selected === i + 1 ? ' selected' : '') + '>' + P.escapeHtml(lb) + '</option>';
+  });
+  return h;
+}
+
+function efHasAnswers(arr) {
+  return Array.isArray(arr) && arr.some(function (x) { return x != null; });
+}
+
+function renderDetailEdit(r) {
+  var bd = r.birthDate || {};
+  function v(x) { return x == null ? '' : P.escapeHtml(String(x)); }
+  var sexOpts = ['男', '女'];
+  var sexHtml = '<option value="">未記入</option>' + sexOpts.map(function (x) {
+    return '<option value="' + x + '"' + (r.sex === x ? ' selected' : '') + '>' + x + '</option>';
+  }).join('');
+  if (r.sex && sexOpts.indexOf(r.sex) < 0) sexHtml += '<option value="' + P.escapeHtml(r.sex) + '" selected>' + P.escapeHtml(r.sex) + '</option>';
+
+  var h = '<div class="edit-form" id="edit-form">';
+  h += '<div class="ef-grid">';
+  h += '<div class="ef-field"><label for="ef-name">氏名</label><input type="text" id="ef-name" value="' + v(r.name) + '"></div>';
+  h += '<div class="ef-field"><label for="ef-hid">病院ID</label><input type="text" id="ef-hid" value="' + v(r.hospitalId) + '"></div>';
+  h += '<div class="ef-field"><label>生年月日（年 / 月 / 日）</label><div class="ef-birth">' +
+    '<input type="number" id="ef-by" inputmode="numeric" placeholder="年" min="1900" max="2100" value="' + v(bd.y) + '">' +
+    '<input type="number" id="ef-bm" inputmode="numeric" placeholder="月" min="1" max="12" value="' + v(bd.m) + '">' +
+    '<input type="number" id="ef-bd" inputmode="numeric" placeholder="日" min="1" max="31" value="' + v(bd.d) + '"></div></div>';
+  h += '<div class="ef-field"><label for="ef-sex">性別</label><select id="ef-sex">' + sexHtml + '</select></div>';
+  h += '<div class="ef-field"><label for="ef-doctor">担当医</label><input type="text" id="ef-doctor" value="' + v(r.doctor) + '"></div>';
+  h += '<div class="ef-field"><label for="ef-date">記入日（必須）</label><input type="date" id="ef-date" value="' + (r.date ? toISODate(r.date) : '') + '"></div>';
+  h += '</div>';
+
+  h += '<h4>過去4週間の日数（0〜28）</h4><div class="ef-grid days">';
+  [['mhd', '頭痛があった日'], ['mmd', '痛み止め服用日'], ['notClearDays', 'スッキリせず'], ['clearDays', 'スッキリ']].forEach(function (f) {
+    h += '<div class="ef-field"><label for="ef-' + f[0] + '">' + f[1] + '</label><input type="number" id="ef-' + f[0] + '" inputmode="numeric" min="0" max="28" step="1" value="' + v(r[f[0]]) + '"></div>';
+  });
+  h += '</div>';
+
+  var legacy6 = r.hit6 != null && !efHasAnswers(r.hit6Answers);
+  h += '<h4>HIT-6（全問回答で点数と判定を再計算）</h4>';
+  if (legacy6) h += '<div style="font-size:11px;color:#888;margin-bottom:6px">この記録は回答の内訳がないため、点数（' + r.hit6 + '点）は変更できません。</div>';
+  else h += P.HIT6_Q.map(function (q, i) {
+    var cur = r.hit6Answers ? r.hit6Answers[i] : null;
+    return '<div class="ef-q"><div class="qn">' + (i + 1) + '. ' + P.escapeHtml(q.q) + '</div><select id="ef-h6-' + i + '">' + efOptions(q.opts, cur) + '</select></div>';
+  }).join('');
+
+  var legacy4 = r.mibs4 != null && !efHasAnswers(r.mibs4Answers);
+  h += '<h4>MIBS-4（全問回答で点数と判定を再計算）</h4>';
+  if (legacy4) h += '<div style="font-size:11px;color:#888;margin-bottom:6px">この記録は回答の内訳がないため、点数（' + r.mibs4 + '点）は変更できません。</div>';
+  else h += P.MIBS4_Q.map(function (q, i) {
+    var cur = r.mibs4Answers ? r.mibs4Answers[i] : null;
+    return '<div class="ef-q"><div class="qn">' + (i + 1) + '. ' + P.escapeHtml(q.q) + '</div><select id="ef-m4-' + i + '">' + efOptions(P.MIBS4_OPTS, cur) + '</select></div>';
+  }).join('');
+
+  h += '<h4>備考</h4><textarea id="ef-note">' + P.escapeHtml(r.note || '') + '</textarea>';
+  h += '<div style="font-size:11px;color:#888;margin-top:6px">生テキスト（QRの元の内容）は変更されず、証跡として残ります。</div>';
+  h += '</div>';
+  document.getElementById('detail-body').innerHTML = h;
+  return { legacy6: legacy6, legacy4: legacy4 };
+}
+
+function readEditForm(flags) {
+  function val(id) { return document.getElementById(id).value; }
+  var edits = {
+    name: val('ef-name'), hospitalId: val('ef-hid'), sex: val('ef-sex'), doctor: val('ef-doctor'),
+    birthDate: { y: val('ef-by'), m: val('ef-bm'), d: val('ef-bd') },
+    date: val('ef-date'),
+    mhd: val('ef-mhd'), mmd: val('ef-mmd'), notClearDays: val('ef-notClearDays'), clearDays: val('ef-clearDays'),
+    note: val('ef-note')
+  };
+  if (!flags.legacy6) edits.hit6Answers = [0, 1, 2, 3, 4, 5].map(function (i) { return val('ef-h6-' + i); });
+  if (!flags.legacy4) edits.mibs4Answers = [0, 1, 2, 3].map(function (i) { return val('ef-m4-' + i); });
+  return edits;
+}
+
+// 編集内容を保存する。検証→(警告confirm)→重複確認→保存→再描画→FileMaker再書き出し。
+function saveDetailEdit(r, flags) {
+  detailShowError(null);
+  var edits = readEditForm(flags);
+  var chk = P.validateRecordEdits(r, edits);
+  if (chk.errors.length) { detailShowError(chk.errors.join('\n')); return; }
+  if (chk.warnings.length && !confirm(chk.warnings.join('\n') + '\n\nこのまま保存しますか？')) return;
+  var updated = P.applyRecordEdits(r, edits);
+  var keyChanged = updated.patientKey !== r.patientKey || updated.date !== r.date;
+  var wasSelected = currentPatientKey === r.patientKey;
+  if (keyChanged && r.fmExportedAt && !r.isDemo &&
+      !confirm('この記録は FileMaker に書き出し済みです。患者（病院ID・氏名・生年月日）または記入日を変えると、FileMaker 側では別の記録として追加され、元の記録は残ります。\n\nこのまま保存しますか？')) return;
+  // ※新規登録の版チェック(addRecord)は編集保存には適用しない。
+  idbGetAll().then(function (all) {
+    var dup = P.findDuplicateRecord(all, updated);
+    if (dup) {
+      detailShowError('同じ患者・記入日（' + updated.date + '）の記録が既にあります。記入日または患者情報を変えてください。');
+      return;
+    }
+    return idbPut(updated).then(function () {
+      showToast('記録を更新しました', 'success');
+      closeDetail();
+      return refreshAll();
+    }).then(function () {
+      if (wasSelected && updated.patientKey !== r.patientKey) selectPatient(updated.patientKey);
+      if (!updated.isDemo) return fmAutoExport({ requestPermission: false });
+    });
+  }).catch(function (err) { reportWriteError(err, '更新'); });
+}
+
 function openDetail(id) {
   idbGetAll().then(function (all) {
     var r = all.find(function (x) { return x.id === id; });
     if (!r) return;
-    var body = document.getElementById('detail-body');
-    var html = '';
-    html += '<div class="patient-info-line"><b>患者:</b> ' + P.escapeHtml(P.patientLabel(r)) + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</div>';
-    html += '<div class="patient-info-line"><b>性別:</b> ' + P.escapeHtml(r.sex || '-') + ' &nbsp; <b>担当医:</b> ' + P.escapeHtml(r.doctor || '-') + '</div>';
-    html += '<div class="patient-info-line"><b>記入日:</b> <input type="date" id="detail-date-input" value="' + (r.date ? toISODate(r.date) : '') + '"></div>';
-    html += '<hr style="margin:10px 0">';
-    html += '<h4 style="margin-bottom:6px">HIT-6' + (r.hit6 != null ? '（' + r.hit6 + '点 ' + P.escapeHtml(r.hit6Verdict || '') + '）' : '（未完）') + '</h4>';
-    html += P.HIT6_Q.map(function (q, i) { return answerLine(q, q.opts, r.hit6Answers ? r.hit6Answers[i] : null, i); }).join('');
-    html += '<h4 style="margin:10px 0 6px">MIBS-4' + (r.mibs4 != null ? '（' + r.mibs4 + '点 ' + P.escapeHtml(r.mibs4Verdict || '') + '）' : '（未完）') + '</h4>';
-    html += P.MIBS4_Q.map(function (q, i) { return answerLine(q, P.MIBS4_OPTS, r.mibs4Answers ? r.mibs4Answers[i] : null, i); }).join('');
-    html += '<h4 style="margin:10px 0 6px">備考</h4><div style="font-size:12px;white-space:pre-wrap">' + P.escapeHtml(r.note || '(なし)') + '</div>';
-    html += '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:#888">生テキスト</summary><pre class="debug-text">' + P.escapeHtml(r.rawText || '') + '</pre></details>';
-    body.innerHTML = html;
-
-    document.getElementById('detail-save-btn').onclick = function () {
-      var v = document.getElementById('detail-date-input').value;
-      if (!v) { showToast('日付を入力してください', 'error'); return; }
-      var parts = v.split('-');
-      r.date = parts[0] + '/' + parts[1] + '/' + parts[2];
-      r.sortKey = parseInt(parts[0], 10) * 10000 + parseInt(parts[1], 10) * 100 + parseInt(parts[2], 10);
-      idbPut(r).then(function () {
-        showToast('記入日を更新しました', 'success');
-        closeDetail();
-        refreshAll();
-      }).catch(function (err) { reportWriteError(err, '更新'); });
+    renderDetailView(r);
+    detailSetMode(false);
+    var flags = null;
+    document.getElementById('detail-edit-btn').onclick = function () {
+      flags = renderDetailEdit(r);
+      detailSetMode(true);
+      document.getElementById('detail-body').scrollTop = 0;
     };
+    document.getElementById('detail-cancel-btn').onclick = function () {
+      renderDetailView(r);
+      detailSetMode(false);
+    };
+    document.getElementById('detail-save-btn').onclick = function () { saveDetailEdit(r, flags); };
     document.getElementById('detail-delete-btn').onclick = function () {
       if (!confirm('このレコードを削除しますか？')) return;
       deleteRecordById(r.id).then(function () { closeDetail(); });
@@ -1438,7 +1594,11 @@ document.addEventListener('click', function (e) {
 });
 
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') { closeScanner(); closeManualInput(); closeDetail(); closeBackupModal(); }
+  if (e.key === 'Escape') {
+    closeScanner(); closeManualInput(); closeBackupModal();
+    // 編集中は Escape で入力を失わないよう、詳細モーダルは閉じない（キャンセルボタンで戻る）。
+    if (document.getElementById('detail-save-btn').style.display === 'none') closeDetail();
+  }
 });
 
 var tmpDiv = document.createElement('div');
