@@ -279,6 +279,69 @@
     return out;
   }
 
+  // ===== デモデータ（架空・固定） =====
+  // 病院ID DEMO の架空患者。毎月15日来院 2025/12/15〜2026/09/15 の10回分。
+  // 頭痛が徐々に改善し、最後の回で悪化する。回答は HIT6_PT / MIBS4_PT で合計が点数になる組。
+  var DEMO_HOSPITAL_ID = 'DEMO';
+  var DEMO_ROWS = [
+    { date: '2025/12/15', mhd: 15, mmd: 12, nc: 8, hit: [4, 3, 5, 3, 4, 4], mibs: [5, 6, 4, 3], note: '' },
+    { date: '2026/01/15', mhd: 13, mmd: 11, nc: 7, hit: [3, 3, 5, 3, 3, 4], mibs: [5, 4, 4, 3], note: '' },
+    { date: '2026/02/15', mhd: 12, mmd: 10, nc: 6, hit: [3, 3, 4, 3, 3, 4], mibs: [5, 4, 3, 3], note: '予防薬を開始。' },
+    { date: '2026/03/15', mhd: 10, mmd: 8, nc: 5, hit: [2, 3, 4, 3, 3, 4], mibs: [4, 4, 3, 3], note: '' },
+    { date: '2026/04/15', mhd: 9, mmd: 7, nc: 4, hit: [2, 2, 4, 3, 3, 4], mibs: [4, 3, 3, 3], note: '' },
+    { date: '2026/05/15', mhd: 7, mmd: 6, nc: 3, hit: [2, 2, 4, 2, 3, 3], mibs: [4, 3, 3, 2], note: '朝方の頭痛が減った。' },
+    { date: '2026/06/15', mhd: 6, mmd: 5, nc: 2, hit: [2, 2, 3, 2, 2, 3], mibs: [3, 3, 3, 2], note: '' },
+    { date: '2026/07/15', mhd: 5, mmd: 4, nc: 2, hit: [2, 2, 3, 2, 2, 2], mibs: [3, 3, 2, 2], note: '' },
+    { date: '2026/08/15', mhd: 4, mmd: 3, nc: 1, hit: [1, 2, 3, 2, 2, 2], mibs: [3, 2, 3, 2], note: '' },
+    { date: '2026/09/15', mhd: 12, mmd: 10, nc: 6, hit: [4, 3, 4, 3, 3, 3], mibs: [5, 4, 4, 2], note: '仕事が忙しく睡眠不足だった。' }
+  ];
+
+  function sumPoints(answers, table) {
+    return answers.reduce(function (s, a) { return s + table[a - 1]; }, 0);
+  }
+
+  // ①(Headache-Yes-No)の buildQrText と同じ形式のQRテキストを10件、記入日の昇順で返す。
+  // 4つの日数の合計は必ず28。点数・判定は回答から計算する。
+  function buildDemoTexts(appVersion) {
+    return DEMO_ROWS.map(function (r) {
+      var h = sumPoints(r.hit, HIT6_PT);
+      var m = sumPoints(r.mibs, MIBS4_PT);
+      var clear = 28 - r.mhd - r.nc;
+      var lines = [
+        '頭痛チェックシート',
+        'バージョン: ' + appVersion,
+        '記入日: ' + r.date,
+        '生年月日: 1985/4/1',
+        '氏名: デモ 患者',
+        '性別: 女',
+        '病院ID: ' + DEMO_HOSPITAL_ID,
+        '担当医: デモ',
+        '【過去4週間】',
+        '頭痛があった日: ' + r.mhd + '日',
+        '痛み止め服用日: ' + r.mmd + '日',
+        'スッキリせず: ' + r.nc + '日',
+        'スッキリ: ' + clear + '日',
+        '【HIT-6】 ' + h + '点 ' + hit6Verdict(h),
+        '回答: ' + r.hit.join(','),
+        '【MIBS-4】 ' + m + '点 ' + mibs4Verdict(m),
+        '回答: ' + r.mibs.join(',')
+      ];
+      if (r.note) lines.push('【備考】 ' + r.note);
+      return lines.join('\n');
+    });
+  }
+
+  // デモ記録（実データと同じ parseQrText 経路。isDemo: true を付ける）。
+  function buildDemoRecords(appVersion, registeredAt) {
+    var ts = registeredAt || new Date().toISOString();
+    return buildDemoTexts(appVersion).map(function (t) {
+      var rec = parseQrText(t);
+      rec.isDemo = true;
+      rec.registeredAt = ts;
+      return rec;
+    });
+  }
+
   // ===== FileMaker連携 CSV契約 v1 =====
   // 列順・書式は固定。変更する場合は契約バージョンを上げること。
   var FM_CONTRACT_VERSION = 1;
@@ -331,17 +394,22 @@
     return FM_HEADER.map(csvField).join(',');
   }
 
-  // records の全件から新規にCSV(UTF-8, BOMなし, CRLF)を組み立てる。
+  // FileMaker へ渡してよい記録だけを返す。デモ記録(isDemo: true)は架空患者なので常に除外する。
+  function fmExportable(records) {
+    return (records || []).filter(function (r) { return r && !r.isDemo; });
+  }
+
+  // records の全件から新規にCSV(UTF-8, BOMなし, CRLF)を組み立てる。デモ記録は含めない。
   function buildFileMakerCsv(records) {
     var lines = [buildFileMakerHeaderLine()];
-    (records || []).forEach(function (r) { lines.push(buildFileMakerRow(r)); });
+    fmExportable(records).forEach(function (r) { lines.push(buildFileMakerRow(r)); });
     return lines.join('\r\n') + '\r\n';
   }
 
   // 既存ファイル内容(existingText)の末尾に records を追記したCSV全文を返す。
   // existingTextが空ならヘッダーから新規作成する。
   function appendFileMakerCsv(existingText, records) {
-    records = records || [];
+    records = fmExportable(records);
     if (!existingText || !existingText.trim()) {
       return buildFileMakerCsv(records);
     }
@@ -375,6 +443,10 @@
     parseAppVersion: parseAppVersion,
     parseQrText: parseQrText,
     migrateRecord: migrateRecord,
+    DEMO_HOSPITAL_ID: DEMO_HOSPITAL_ID,
+    buildDemoTexts: buildDemoTexts,
+    buildDemoRecords: buildDemoRecords,
+    fmExportable: fmExportable,
     FM_CONTRACT_VERSION: FM_CONTRACT_VERSION,
     FM_HEADER: FM_HEADER,
     fmImportKey: fmImportKey,

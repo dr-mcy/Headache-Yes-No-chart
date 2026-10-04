@@ -118,3 +118,27 @@ test('appendFileMakerCsv: 追記対象が空なら既存内容をそのまま返
   const first = P.buildFileMakerCsv([baseRec()]);
   assert.equal(P.appendFileMakerCsv(first, []), first);
 });
+
+// ===== デモ記録は FileMaker に出さない =====
+test('fmExportable: isDemo の記録だけ除外する', () => {
+  const real = baseRec();
+  const demo = baseRec({ patientKey: 'hid:DEMO', isDemo: true });
+  assert.deepEqual(P.fmExportable([real, demo]), [real]);
+  assert.deepEqual(P.fmExportable(null), []);
+});
+
+test('buildFileMakerCsv: デモ記録は行に出ない（ヘッダー+実データのみ）', () => {
+  const csv = P.buildFileMakerCsv([baseRec(), baseRec({ patientKey: 'hid:DEMO', hospitalId: 'DEMO', isDemo: true })]);
+  assert.equal(csv.split('\r\n').length, 3);
+  assert.ok(csv.indexOf('DEMO') < 0);
+});
+
+test('appendFileMakerCsv: デモ記録だけなら既存内容を変えず、新規でもヘッダーのみ', () => {
+  const demo = baseRec({ hospitalId: 'DEMO', isDemo: true });
+  const existing = P.buildFileMakerCsv([baseRec()]);
+  assert.equal(P.appendFileMakerCsv(existing, [demo]), existing);
+  assert.equal(P.appendFileMakerCsv('', [demo]), P.buildFileMakerCsv([]));
+  const merged = P.appendFileMakerCsv(existing, [demo, baseRec({ date: '2026/10/01' })]);
+  assert.equal(merged.split('\r\n').length, 4);
+  assert.ok(merged.indexOf('DEMO') < 0);
+});
