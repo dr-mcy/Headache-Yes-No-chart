@@ -207,7 +207,7 @@ const DEMO_EXPECT = {
   mhd:  [16, 14, 15, 11, 12, 9, 7, 8, 5, 13],
   mmd:  [13, 12, 12, 9, 10, 7, 5, 6, 3, 11],
   hit6: [67, 64, 65, 59, 61, 56, 52, 54, 48, 63],
-  mibs4: [10, 9, 9, 6, 7, 5, 3, 4, 2, 8]
+  mibs4: [9, 10, 7, 7, 4, 6, 4, 2, 3, 6]
 };
 
 test('buildDemoTexts: 10件・毎月1回（月が連続）・昇順・版行は引数どおり', () => {
@@ -235,6 +235,21 @@ test('buildDemoTexts: 経過は単調でなく、最終月は前月より悪化'
   assert.ok(last.mibs4 > prev.mibs4);
   assert.ok(last.mhd > prev.mhd);
   assert.ok(recs[0].hit6 > prev.hit6, '全体としては初回より改善');
+});
+
+test('buildDemoTexts: HIT-6 と MIBS-4 の月次変化の向きが一致しない月が2か月以上（散布図が一直線にならない）', () => {
+  const recs = P.buildDemoTexts('v1.6.0').map(t => P.parseQrText(t));
+  let mismatch = 0;
+  for (let i = 1; i < recs.length; i++) {
+    const dh = Math.sign(recs[i].hit6 - recs[i - 1].hit6);
+    const dm = Math.sign(recs[i].mibs4 - recs[i - 1].mibs4);
+    if (dh !== dm) mismatch++;
+  }
+  assert.ok(mismatch >= 2, '向きが一致しない月: ' + mismatch);
+  // 最終月は前月より MIBS-4 が悪化。初回より最終月は改善または同等
+  const last = recs[recs.length - 1], prev = recs[recs.length - 2];
+  assert.ok(last.mibs4 > prev.mibs4);
+  assert.ok(last.mibs4 <= recs[0].mibs4);
 });
 
 test('buildDemoTexts: 同一の架空患者（DEMO / デモ 患者 / 1985/4/1 / 女 / デモ）', () => {

@@ -340,7 +340,7 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 // ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
-var APP_VERSION = 'v1.5.0';
+var APP_VERSION = 'v1.6.0';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 var DB_NAME = 'headache_db';
@@ -1183,6 +1183,43 @@ function medLine10Plugin() {
   };
 }
 
+// 時系列3グラフ共通のx軸設定。期間が90日以上なら月単位の目盛り、未満なら日単位。
+// 両端の点・棒が欠けないよう、最初/最後の記入日の前後に余白を取り、3グラフで範囲を揃える。
+function timeAxisFor(timestamps) {
+  var DAY = 86400000;
+  var xs = timestamps.filter(function (t) { return t != null && isFinite(t); });
+  if (!xs.length) return { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } } };
+  var first = Math.min.apply(null, xs), last = Math.max.apply(null, xs);
+  var spanDays = (last - first) / DAY;
+  var monthly = spanDays >= 90;
+  var padDays = monthly ? 15 : Math.min(15, Math.max(2, Math.round(spanDays * 0.08)));
+  return {
+    x: {
+      type: 'time',
+      offset: false,
+      min: first - padDays * DAY,
+      max: last + padDays * DAY,
+      time: monthly ? { unit: 'month', displayFormats: { month: 'yyyy/MM' }, tooltipFormat: 'yyyy/MM/dd' } : { unit: 'day', tooltipFormat: 'yyyy/MM/dd' },
+      title: { display: true, text: '記入日' },
+      ticks: { maxRotation: 45, minRotation: 30 }
+    }
+  };
+}
+
+// 日数グラフの棒幅（px）。全棒で同じ。最も近い2記入日の間隔に収まるよう、狭い画面では細くする。
+function barThicknessFor(timestamps, axis, plotWidthPx) {
+  var DAY = 86400000;
+  var xs = timestamps.filter(function (t) { return t != null && isFinite(t); }).sort(function (a, b) { return a - b; });
+  var range = (axis.x.max - axis.x.min) / DAY;
+  var thick = 20;
+  if (xs.length > 1 && range > 0 && plotWidthPx > 0) {
+    var minGap = Infinity;
+    for (var i = 1; i < xs.length; i++) { var g = xs[i] - xs[i - 1]; if (g > 0 && g < minGap) minGap = g; }
+    if (isFinite(minGap)) thick = Math.min(20, Math.floor((minGap / DAY) / range * plotWidthPx * 0.8));
+  }
+  return Math.max(4, thick);
+}
+
 function renderCharts() {
   var data = getFilteredData().slice().sort(function (a, b) { return (a.sortKey || 0) - (b.sortKey || 0); });
   var cnt = document.getElementById('record-count');
@@ -1216,6 +1253,9 @@ function renderCharts() {
 
   var pointColor = '#4a6f8e';
 
+  var allTs = timePoints.map(function (r) { return toTimestamp(r.date); });
+  var timeAxis = timeAxisFor(allTs);
+
   if (chartHit6) chartHit6.destroy();
   chartHit6 = new Chart(document.getElementById('hit6Chart'), {
     type: 'line',
@@ -1224,7 +1264,7 @@ function renderCharts() {
       responsive: true,
       parsing: false,
       plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
-      scales: { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } }, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6' } } },
+      scales: { x: timeAxis.x, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6' } } },
       layout: { padding: { top: 24 } }
     },
     plugins: [ChartDataLabels, bandPlugin(HIT6_BANDS)]
@@ -1238,29 +1278,32 @@ function renderCharts() {
       responsive: true,
       parsing: false,
       plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
-      scales: { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } }, y: { min: 0, max: 12, title: { display: true, text: 'MIBS-4' } } },
+      scales: { x: timeAxis.x, y: { min: 0, max: 12, title: { display: true, text: 'MIBS-4' } } },
       layout: { padding: { top: 24 } }
     },
     plugins: [ChartDataLabels, bandPlugin(MIBS4_BANDS)]
   });
 
   // 日数積み上げ棒（頭痛日/スッキリせず/スッキリ）+ 服薬日の線
-  var dayLabels = timePoints.map(function (r) { return toISODate(r.date); });
+  var dayLabels = allTs;
+  var daysPanel = document.getElementById('daysChart').parentElement;
+  var plotW = Math.max(0, (daysPanel.clientWidth || Math.min(window.innerWidth - 32, 900)) - 60);
+  var barPx = barThicknessFor(allTs, timeAxis, plotW);
   if (chartDays) chartDays.destroy();
   chartDays = new Chart(document.getElementById('daysChart'), {
     data: {
       labels: dayLabels,
       datasets: [
-        { type: 'bar', label: '頭痛日', data: timePoints.map(function (r) { return r.mhd; }), backgroundColor: 'rgba(232,132,42,0.75)', stack: 'days' },
-        { type: 'bar', label: 'スッキリせず', data: timePoints.map(function (r) { return r.notClearDays; }), backgroundColor: 'rgba(212,172,13,0.75)', stack: 'days' },
-        { type: 'bar', label: 'スッキリ', data: timePoints.map(function (r) { return r.clearDays; }), backgroundColor: 'rgba(79,157,107,0.75)', stack: 'days' },
+        { type: 'bar', label: '頭痛日', data: timePoints.map(function (r) { return r.mhd; }), backgroundColor: 'rgba(232,132,42,0.75)', barThickness: barPx, maxBarThickness: 20, stack: 'days' },
+        { type: 'bar', label: 'スッキリせず', data: timePoints.map(function (r) { return r.notClearDays; }), backgroundColor: 'rgba(212,172,13,0.75)', barThickness: barPx, maxBarThickness: 20, stack: 'days' },
+        { type: 'bar', label: 'スッキリ', data: timePoints.map(function (r) { return r.clearDays; }), backgroundColor: 'rgba(79,157,107,0.75)', barThickness: barPx, maxBarThickness: 20, stack: 'days' },
         { type: 'line', label: '服薬日(MMD)', data: timePoints.map(function (r) { return r.mmd; }), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 5, borderWidth: 2, yAxisID: 'y' }
       ]
     },
     options: {
       responsive: true,
       plugins: { legend: { position: 'top' }, datalabels: { display: false } },
-      scales: { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } }, y: { min: 0, max: 28, stacked: true, title: { display: true, text: '日数' } } },
+      scales: { x: timeAxis.x, y: { min: 0, max: 28, stacked: true, title: { display: true, text: '日数' } } },
       layout: { padding: { top: 10 } }
     },
     plugins: [medLine10Plugin()]
