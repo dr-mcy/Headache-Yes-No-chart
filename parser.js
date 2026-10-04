@@ -588,6 +588,18 @@
     return trimmed + '\r\n' + newRows + '\r\n';
   }
 
+// グラフ用: 記入日のある記録のうち、記入日（sortKey）が新しい順に最大 n 件を選び、古い順に並べ直して返す。
+// 元の配列は変更しない。sortKey が同じ記録は入力順を保つ。
+function selectRecentVisits(records, n) {
+  var withDate = (records || []).filter(function (r) { return r && r.date; });
+  var indexed = withDate.map(function (r, i) { return { r: r, i: i }; });
+  indexed.sort(function (a, b) {
+    var d = (b.r.sortKey || 0) - (a.r.sortKey || 0);
+    return d !== 0 ? d : b.i - a.i;
+  });
+  return indexed.slice(0, Math.max(0, n)).map(function (x) { return x.r; }).reverse();
+}
+
   var api = {
     HIT6_Q: HIT6_Q,
     HIT6_PT: HIT6_PT,
@@ -619,6 +631,7 @@
     DEMO_HOSPITAL_ID: DEMO_HOSPITAL_ID,
     buildDemoTexts: buildDemoTexts,
     buildDemoRecords: buildDemoRecords,
+    selectRecentVisits: selectRecentVisits,
     fmExportable: fmExportable,
     FM_CONTRACT_VERSION: FM_CONTRACT_VERSION,
     FM_HEADER: FM_HEADER,
