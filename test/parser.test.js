@@ -270,3 +270,155 @@ test('buildDemoRecords: 全件 isDemo: true で id が重複しない', () => {
   recs.forEach(r => assert.equal(r.isDemo, true));
   assert.equal(new Set(recs.map(r => r.id)).size, 10);
 });
+
+// ===== 記録の編集（applyRecordEdits / validateRecordEdits / findDuplicateRecord）=====
+function sampleRec() {
+  const r = P.parseQrText(FULL_SAMPLE);
+  r.id = 'rec-1';
+  r.registeredAt = '2026-09-27T01:00:00.000Z';
+  r.fmExportedAt = '2026-09-27T02:00:00.000Z';
+  return r;
+}
+const NOW = '2026-10-05T03:04:05.000Z';
+
+test('applyRecordEdits: HIT-6 回答変更で点数・判定を再計算する', () => {
+  const rec = sampleRec();
+  const out = P.applyRecordEdits(rec, { hit6Answers: [1, 1, 1, 1, 1, 1] }, NOW);
+  assert.deepEqual(out.hit6Answers, [1, 1, 1, 1, 1, 1]);
+  assert.equal(out.hit6, 6 * 6);
+  assert.equal(out.hit6Verdict, '影響なし');
+  const hi = P.applyRecordEdits(rec, { hit6Answers: [5, 5, 5, 5, 5, 5] }, NOW);
+  assert.equal(hi.hit6, 13 * 6);
+  assert.equal(hi.hit6Verdict, '重度');
+  assert.equal(rec.hit6, 58); // 元の rec は変更しない
+});
+
+test('applyRecordEdits: MIBS-4 回答変更で点数・判定を再計算する', () => {
+  const out = P.applyRecordEdits(sampleRec(), { mibs4Answers: [5, 5, 6, 6] }, NOW);
+  assert.equal(out.mibs4, 3 + 3 + 3 + 3);
+  assert.equal(out.mibs4Verdict, '重度');
+  const low = P.applyRecordEdits(sampleRec(), { mibs4Answers: [2, 2, 2, 2] }, NOW);
+  assert.equal(low.mibs4, 0);
+  assert.equal(low.mibs4Verdict, '支障なし');
+});
+
+test('applyRecordEdits: 未完（1問でも未回答）なら点数と判定は null', () => {
+  const out = P.applyRecordEdits(sampleRec(), { hit6Answers: [1, 2, null, 4, 5, 3], mibs4Answers: [1, '', 3, 4] }, NOW);
+  assert.equal(out.hit6, null);
+  assert.equal(out.hit6Verdict, null);
+  assert.deepEqual(out.hit6Answers, [1, 2, null, 4, 5, 3]);
+  assert.equal(out.mibs4, null);
+  assert.equal(out.mibs4Verdict, null);
+  assert.deepEqual(out.mibs4Answers, [1, null, 3, 4]);
+});
+
+test('applyRecordEdits: 回答を渡さなければ点数・回答は変更されない', () => {
+  const rec = sampleRec();
+  const out = P.applyRecordEdits(rec, { note: '変更' }, NOW);
+  assert.equal(out.hit6, 58);
+  assert.deepEqual(out.hit6Answers, [1, 2, 3, 4, 5, 3]);
+  assert.equal(out.mibs4, 4);
+});
+
+test('applyRecordEdits: 患者情報の変更で patientKey が変わる', () => {
+  const rec = sampleRec();
+  assert.equal(rec.patientKey, 'hid:H-0001');
+  const a = P.applyRecordEdits(rec, { hospitalId: 'H-0002' }, NOW);
+  assert.equal(a.patientKey, 'hid:H-0002');
+  const b = P.applyRecordEdits(rec, { hospitalId: '', name: '変更 花子', birthDate: { y: '1990', m: '1', d: '2' } }, NOW);
+  assert.equal(b.hospitalId, null);
+  assert.equal(b.patientKey, 'nb:変更 花子|1990/1/2');
+  assert.deepEqual(b.birthDate, { y: 1990, m: 1, d: 2, display: '1990/1/2' });
+  const c = P.applyRecordEdits(rec, { hospitalId: '', birthDate: { y: '', m: '', d: '' } }, NOW);
+  assert.equal(c.birthDate, null);
+  assert.equal(c.patientKey, 'n:テスト 太郎');
+});
+
+test('applyRecordEdits: 記入日の変更で date / sortKey が更新される', () => {
+  const out = P.applyRecordEdits(sampleRec(), { date: '2026-10-03' }, NOW);
+  assert.equal(out.date, '2026/10/03');
+  assert.equal(out.sortKey, 20261003);
+  const out2 = P.applyRecordEdits(sampleRec(), { date: '2026/9/5' }, NOW);
+  assert.equal(out2.date, '2026/09/05');
+  assert.equal(out2.sortKey, 20260905);
+});
+
+test('applyRecordEdits: rawText は元のまま、editedAt を付与、id・registeredAt・isDemo は保持', () => {
+  const rec = sampleRec();
+  rec.isDemo = true;
+  const out = P.applyRecordEdits(rec, { note: '', mhd: '7', hit6Answers: [1, 1, 1, 1, 1, 1] }, NOW);
+  assert.equal(out.rawText, FULL_SAMPLE);
+  assert.equal(out.editedAt, NOW);
+  assert.equal(out.id, 'rec-1');
+  assert.equal(out.registeredAt, '2026-09-27T01:00:00.000Z');
+  assert.equal(out.isDemo, true);
+  assert.equal(out.fmExportedAt, null); // 再書き出し対象に戻す
+  assert.equal(rec.fmExportedAt, '2026-09-27T02:00:00.000Z'); // 元は変更しない
+  assert.equal(out.mhd, 7);
+  assert.equal(out.note, null);
+  // editedAt を省略すると現在時刻（ISO）
+  assert.match(P.applyRecordEdits(rec, {}).editedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('applyRecordEdits: 日数は空欄で null、0 は 0 のまま', () => {
+  const out = P.applyRecordEdits(sampleRec(), { mhd: '0', mmd: '', notClearDays: ' ', clearDays: '28' }, NOW);
+  assert.equal(out.mhd, 0);
+  assert.equal(out.mmd, null);
+  assert.equal(out.notClearDays, null);
+  assert.equal(out.clearDays, 28);
+});
+
+test('applyRecordEdits: 不正な入力は Error（記入日空・実在しない日付・日数範囲外・回答範囲外）', () => {
+  const rec = sampleRec();
+  assert.throws(() => P.applyRecordEdits(rec, { date: '' }), /記入日は必須/);
+  assert.throws(() => P.applyRecordEdits(rec, { date: '2026-02-31' }), /実在/);
+  assert.throws(() => P.applyRecordEdits(rec, { date: '2026-13-01' }), /実在/);
+  assert.throws(() => P.applyRecordEdits(rec, { mhd: '29' }), /0〜28/);
+  assert.throws(() => P.applyRecordEdits(rec, { mmd: '-1' }), /0〜28/);
+  assert.throws(() => P.applyRecordEdits(rec, { clearDays: '1.5' }), /0〜28/);
+  assert.throws(() => P.applyRecordEdits(rec, { hit6Answers: [1, 2, 3, 4, 5, 6] }), /不正/);
+  assert.throws(() => P.applyRecordEdits(rec, { mibs4Answers: [1, 2, 3] }), /4問/);
+  assert.throws(() => P.applyRecordEdits(rec, { birthDate: { y: '1990', m: '2', d: '30' } }), /実在/);
+});
+
+test('validateRecordEdits: 3つの日数の合計が28超なら警告（エラーではない）。服薬日は含めない', () => {
+  const rec = sampleRec();
+  const over = P.validateRecordEdits(rec, { mhd: '15', notClearDays: '10', clearDays: '10' });
+  assert.deepEqual(over.errors, []);
+  assert.equal(over.warnings.length, 1);
+  const ok = P.validateRecordEdits(rec, { mhd: '10', mmd: '28', notClearDays: '9', clearDays: '9' });
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.warnings, []);
+  const bad = P.validateRecordEdits(rec, { date: '', mhd: '99' });
+  assert.equal(bad.errors.length, 2);
+});
+
+test('findDuplicateRecord: 別 id で患者キー+記入日が一致するものだけ重複', () => {
+  const a = Object.assign(sampleRec(), { id: 'a' });
+  const b = Object.assign(sampleRec(), { id: 'b', date: '2026/10/27' });
+  const edited = P.applyRecordEdits(b, { date: '2026-09-27' }, NOW);
+  assert.equal(P.findDuplicateRecord([a, b], edited).id, 'a');
+  // 自分自身（同 id）は重複ではない
+  assert.equal(P.findDuplicateRecord([a, b], P.applyRecordEdits(b, { note: 'x' }, NOW)), undefined);
+  // 別患者なら重複でない
+  const other = P.applyRecordEdits(b, { date: '2026-09-27', hospitalId: 'H-9' }, NOW);
+  assert.equal(P.findDuplicateRecord([a, b], other), undefined);
+});
+
+test('migrateRecord: editedAt 付きの記録は空にした値を rawText から復活させない', () => {
+  const rec = sampleRec();
+  const edited = P.applyRecordEdits(rec, { note: '', hospitalId: '', doctor: '', mhd: '', hit6Answers: [null, null, null, null, null, null] }, NOW);
+  const m = P.migrateRecord(JSON.parse(JSON.stringify(edited))); // 保存→読み込み相当
+  assert.equal(m.note, null);
+  assert.equal(m.hospitalId, null);
+  assert.equal(m.doctor, null);
+  assert.equal(m.mhd, null);
+  assert.equal(m.hit6, null);
+  assert.equal(m.hit6Verdict, null);
+  assert.equal(m.rawText, FULL_SAMPLE);
+  assert.equal(m.editedAt, NOW);
+  // 比較: editedAt なしなら従来どおり補完される
+  const legacy = Object.assign({}, edited);
+  delete legacy.editedAt;
+  assert.equal(P.migrateRecord(legacy).note, '自由記述（任意、複数行あり得る）');
+});
