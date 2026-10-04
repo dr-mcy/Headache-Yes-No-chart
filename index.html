@@ -1043,6 +1043,13 @@ function toISODate(dateStr) {
   return dateStr ? dateStr.replace(/\//g, '-') : null;
 }
 
+// 'YYYY/MM/DD'（または 'YYYY-MM-DD'）→ ローカル0時の timestamp(ms)。
+// parsing:false のデータでは x を数値で渡す必要がある（文字列だと NaN になり点が描かれない）。
+function toTimestamp(dateStr) {
+  var m = dateStr ? String(dateStr).match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/) : null;
+  return m ? new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)).getTime() : null;
+}
+
 function bandPlugin(bands) {
   return {
     id: 'bands_' + Math.random().toString(36).slice(2),
@@ -1126,8 +1133,8 @@ function renderCharts() {
   });
 
   var timePoints = data.filter(function (r) { return !!r.date; });
-  var hit6Points = timePoints.filter(function (r) { return r.hit6 != null; }).map(function (r) { return { x: toISODate(r.date), y: r.hit6 }; });
-  var mibs4Points = timePoints.filter(function (r) { return r.mibs4 != null; }).map(function (r) { return { x: toISODate(r.date), y: r.mibs4 }; });
+  var hit6Points = timePoints.filter(function (r) { return r.hit6 != null; }).map(function (r) { return { x: toTimestamp(r.date), y: r.hit6 }; });
+  var mibs4Points = timePoints.filter(function (r) { return r.mibs4 != null; }).map(function (r) { return { x: toTimestamp(r.date), y: r.mibs4 }; });
 
   var pointColor = '#4a6f8e';
 
