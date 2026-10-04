@@ -14,7 +14,10 @@
 body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;background:#f0f2f5;color:#333;font-size:14px}
 .container{max-width:980px;margin:0 auto;padding:12px}
 h1{text-align:center;font-size:20px;margin:10px 0 2px;color:#4a6fa5}
-.version{text-align:center;font-size:11px;color:#aaa;margin-bottom:6px}
+.version{text-align:center;font-size:11px;color:#aaa;margin:12px 0 6px}
+.demo-tools{display:flex;gap:8px;justify-content:center;margin-top:20px}
+.demo-tools .btn{width:auto;opacity:.75}
+.demo-badge{display:inline-block;background:#8e6bb8;color:#fff;font-size:10px;font-weight:bold;padding:1px 6px;border-radius:8px;margin-left:4px;vertical-align:middle}
 .subtitle{text-align:center;font-size:12px;color:#888;margin-bottom:16px}
 .card{background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.07);padding:16px;margin-bottom:16px}
 .card h2{font-size:16px;margin-bottom:10px;color:#4a6fa5;border-bottom:2px solid #e0e6ef;padding-bottom:6px}
@@ -122,7 +125,6 @@ table.data-table tr:hover{background:#eef2f7}
 <body>
 <div class="container">
   <h1>&#x1F4CA; 頭痛チェック グラフビューア</h1>
-  <div class="version" id="app-version"></div>
   <p class="subtitle">Headache-Yes-No QRコードを読み取り、HIT-6 / MIBS-4 / MHD / MMD を可視化</p>
 
   <div class="storage-warning hidden no-print" id="storage-warning"></div>
@@ -164,7 +166,7 @@ table.data-table tr:hover{background:#eef2f7}
   </div>
 
   <div class="card" id="summary-card" style="display:none">
-    <h2>&#x1F4CC; 患者サマリー</h2>
+    <h2>&#x1F4CC; 患者サマリー<span class="demo-badge" id="summary-demo-badge" style="display:none">デモ</span></h2>
     <div class="summary-grid" id="summary-grid"></div>
   </div>
 
@@ -209,6 +211,12 @@ table.data-table tr:hover{background:#eef2f7}
       </div>
     </div>
   </div>
+
+  <div class="demo-tools no-print">
+    <button class="btn btn-secondary btn-sm" onclick="loadDemoData()" title="架空の患者データ（10回分）を入れます。FileMakerには書き出されません">&#x1F9EA; デモ</button>
+    <button class="btn btn-secondary btn-sm" onclick="clearDemoData()" title="デモデータだけを削除します">デモ削除</button>
+  </div>
+  <div class="version" id="app-version"></div>
 </div>
 
 <!-- QR Scanner Modal -->
@@ -309,7 +317,7 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 // ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
-var APP_VERSION = 'v1.2.0';
+var APP_VERSION = 'v1.3.0';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 var DB_NAME = 'headache_db';
@@ -402,6 +410,19 @@ function idbDelete(id) {
   });
 }
 
+function idbDeleteMany(ids) {
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(STORE, 'readwrite');
+      var store = tx.objectStore(STORE);
+      ids.forEach(function (id) { store.delete(id); });
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+      tx.onabort = function () { reject(tx.error || new Error('transaction aborted')); };
+    });
+  });
+}
+
 function idbClear() {
   return openDb().then(function (db) {
     return new Promise(function (resolve, reject) {
@@ -463,7 +484,8 @@ function checkStorageQuota() {
 var fmSupportsFS = ('showDirectoryPicker' in window);
 
 function fmUnexportedRecords() {
-  return allRecordsCache.filter(function (r) { return !r.fmExportedAt; });
+  // デモ記録(isDemo)は架空患者なので FileMaker 連携（自動・手動・再書き出し・件数）から常に除外する。
+  return allRecordsCache.filter(function (r) { return !r.fmExportedAt && !r.isDemo; });
 }
 
 function fmSetBanner(msg, type) {
@@ -870,6 +892,36 @@ function deleteRecord(id) {
   deleteRecordById(id);
 }
 
+// ===== デモデータ（架空の患者。FileMaker連携には出さない） =====
+function loadDemoData() {
+  idbGetAll().then(function (all) {
+    var oldDemo = all.filter(function (r) { return r.isDemo; });
+    if (oldDemo.length && !confirm('デモデータを入れ直しますか？')) return;
+    var demo = P.buildDemoRecords(APP_VERSION);
+    return idbDeleteMany(oldDemo.map(function (r) { return r.id; })).then(function () {
+      return idbPutMany(demo);
+    }).then(function () {
+      return refreshAll();
+    }).then(function () {
+      selectPatient('hid:' + P.DEMO_HOSPITAL_ID);
+      showToast('デモデータ ' + demo.length + '件を入れました', 'success');
+    });
+  }).catch(function (err) { reportWriteError(err, 'デモデータ投入'); });
+}
+
+function clearDemoData() {
+  idbGetAll().then(function (all) {
+    var demo = all.filter(function (r) { return r.isDemo; });
+    if (!demo.length) { showToast('デモデータはありません', 'warn'); return; }
+    if (!confirm('デモデータ ' + demo.length + '件を削除しますか？（実データは削除されません）')) return;
+    return idbDeleteMany(demo.map(function (r) { return r.id; })).then(function () {
+      return refreshAll();
+    }).then(function () {
+      showToast('デモデータを削除しました', 'warn');
+    });
+  }).catch(function (err) { reportWriteError(err, 'デモ削除'); });
+}
+
 function clearAllData() {
   if (!confirm('全データを削除しますか？この操作は取り消せません。')) return;
   idbClear().then(function () {
@@ -888,7 +940,7 @@ var patientIndexCache = []; // [{key,label,count}]
 function rebuildPatientIndex(data) {
   var map = {};
   data.forEach(function (r) {
-    if (!map[r.patientKey]) map[r.patientKey] = { key: r.patientKey, label: P.patientLabel(r), count: 0 };
+    if (!map[r.patientKey]) map[r.patientKey] = { key: r.patientKey, label: P.patientLabel(r) + (r.isDemo ? ' [デモ]' : ''), count: 0 };
     map[r.patientKey].count++;
   });
   return Object.keys(map).map(function (k) { return map[k]; });
@@ -993,7 +1045,7 @@ function renderTable() {
     var warn = (sum != null && sum > 28) ? ' <span class="warn-flag" title="内訳合計が28日を超えています">&#x26A0;</span>' : '';
     return '<tr>' +
       '<td>' + P.escapeHtml(r.date || '-') + '</td>' +
-      '<td>' + P.escapeHtml(P.patientLabel(r)) + '</td>' +
+      '<td>' + P.escapeHtml(P.patientLabel(r)) + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</td>' +
       '<td>' + (r.mhd != null ? r.mhd : '-') + warn + '</td>' +
       '<td>' + (r.mmd != null ? r.mmd : '-') + '</td>' +
       '<td>' + (r.hit6 != null ? r.hit6 + '点 ' + verdictBadge(r.hit6, 'hit6') : '-') + '</td>' +
@@ -1019,6 +1071,7 @@ function renderSummary() {
   var data = getFilteredData().slice().sort(function (a, b) { return (a.sortKey || 0) - (b.sortKey || 0); });
   if (!data.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
+  document.getElementById('summary-demo-badge').style.display = data.some(function (r) { return r.isDemo; }) ? '' : 'none';
   var first = data[0], last = data[data.length - 1];
   var prev = data.length > 1 ? data[data.length - 2] : null;
   var fields = [
@@ -1320,7 +1373,7 @@ function openDetail(id) {
     if (!r) return;
     var body = document.getElementById('detail-body');
     var html = '';
-    html += '<div class="patient-info-line"><b>患者:</b> ' + P.escapeHtml(P.patientLabel(r)) + '</div>';
+    html += '<div class="patient-info-line"><b>患者:</b> ' + P.escapeHtml(P.patientLabel(r)) + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</div>';
     html += '<div class="patient-info-line"><b>性別:</b> ' + P.escapeHtml(r.sex || '-') + ' &nbsp; <b>担当医:</b> ' + P.escapeHtml(r.doctor || '-') + '</div>';
     html += '<div class="patient-info-line"><b>記入日:</b> <input type="date" id="detail-date-input" value="' + (r.date ? toISODate(r.date) : '') + '"></div>';
     html += '<hr style="margin:10px 0">';
