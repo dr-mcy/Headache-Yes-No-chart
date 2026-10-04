@@ -60,7 +60,9 @@ table.data-table th{background:#f0f4f8;font-weight:bold;color:#4a6fa5;position:s
 table.data-table tr:nth-child(even){background:#fafbfc}
 table.data-table tr:hover{background:#eef2f7}
 .table-wrap{max-height:320px;overflow:auto;border:1px solid #e0e0e0;border-radius:6px}
-.chart-container{position:relative;width:100%;max-width:100%}
+.chart-container{position:relative;width:100%;max-width:100%;height:380px}
+.chart-container.days{height:400px}
+.chart-note{font-size:12px;color:#777;margin:0 0 8px;text-align:right}
 .chart-container canvas{width:100%!important}
 .tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid #e0e6ef;padding-bottom:0;flex-wrap:wrap}
 .tab{padding:8px 14px;cursor:pointer;border:none;background:transparent;font-size:13px;font-family:inherit;border-bottom:3px solid transparent;color:#888;transition:all .15s}
@@ -125,6 +127,8 @@ table.data-table tr:hover{background:#eef2f7}
 .detail-actions .btn{width:auto}
 @media(max-width:600px){.edit-form .ef-grid{grid-template-columns:1fr}.edit-form .ef-grid.days{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){
+  .chart-container{height:320px}
+  .chart-container.days{height:360px}
   .container{padding:8px}
   .card{padding:12px}
   .actions{flex-direction:column}
@@ -137,6 +141,8 @@ table.data-table tr:hover{background:#eef2f7}
   .card{box-shadow:none;border:1px solid #ddd;page-break-inside:avoid}
   .container{max-width:none;padding:0}
   .table-wrap{max-height:none;overflow:visible}
+  .chart-container{height:340px}
+  .chart-container.days{height:380px}
 }
 </style>
 </head>
@@ -195,11 +201,12 @@ table.data-table tr:hover{background:#eef2f7}
       <button class="tab" onclick="switchTab('scatter-tab',this)">HIT-6 &times; MIBS-4</button>
       <button class="tab" onclick="switchTab('mibs4-tab',this)">MIBS-4 推移</button>
     </div>
+    <div id="chart-recent-note" class="chart-note" style="display:none"></div>
     <div id="hit6-tab" class="tab-panel active">
       <div class="chart-container"><canvas id="hit6Chart"></canvas></div>
     </div>
     <div id="days-tab" class="tab-panel">
-      <div class="chart-container"><canvas id="daysChart"></canvas></div>
+      <div class="chart-container days"><canvas id="daysChart"></canvas></div>
     </div>
     <div id="scatter-tab" class="tab-panel">
       <div class="chart-container"><canvas id="scatterChart"></canvas></div>
@@ -340,7 +347,7 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 // ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
-var APP_VERSION = 'v1.6.0';
+var APP_VERSION = 'v1.7.0';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 var DB_NAME = 'headache_db';
@@ -1183,12 +1190,27 @@ function medLine10Plugin() {
   };
 }
 
+// 狭い画面（スマホ）用の見た目切替。CSS の @media(max-width:600px) と揃える。
+var NARROW_MQ = window.matchMedia ? window.matchMedia('(max-width:600px)') : null;
+function isNarrow() { return !!(NARROW_MQ && NARROW_MQ.matches); }
+function axisTitle(text) {
+  return { display: true, text: text, font: { size: isNarrow() ? 10 : 12 }, padding: isNarrow() ? { top: 2, bottom: 0 } : 4 };
+}
+function xTicksOptions() {
+  var narrow = isNarrow();
+  var t = { autoSkip: true, maxRotation: narrow ? 0 : 45, minRotation: narrow ? 0 : 30, font: { size: narrow ? 10 : 12 } };
+  if (narrow) t.maxTicksLimit = 5;
+  return t;
+}
+
 // 時系列3グラフ共通のx軸設定。期間が90日以上なら月単位の目盛り、未満なら日単位。
 // 両端の点・棒が欠けないよう、最初/最後の記入日の前後に余白を取り、3グラフで範囲を揃える。
+// 狭い画面では目盛りを短い書式（yy/MM, M/d）にして斜めにしない。
 function timeAxisFor(timestamps) {
   var DAY = 86400000;
+  var narrow = isNarrow();
   var xs = timestamps.filter(function (t) { return t != null && isFinite(t); });
-  if (!xs.length) return { x: { type: 'time', time: { unit: 'day' }, title: { display: true, text: '記入日' }, ticks: { maxRotation: 45, minRotation: 30 } } };
+  if (!xs.length) return { x: { type: 'time', time: { unit: 'day' }, title: axisTitle('記入日'), ticks: xTicksOptions() } };
   var first = Math.min.apply(null, xs), last = Math.max.apply(null, xs);
   var spanDays = (last - first) / DAY;
   var monthly = spanDays >= 90;
@@ -1199,9 +1221,11 @@ function timeAxisFor(timestamps) {
       offset: false,
       min: first - padDays * DAY,
       max: last + padDays * DAY,
-      time: monthly ? { unit: 'month', displayFormats: { month: 'yyyy/MM' }, tooltipFormat: 'yyyy/MM/dd' } : { unit: 'day', tooltipFormat: 'yyyy/MM/dd' },
-      title: { display: true, text: '記入日' },
-      ticks: { maxRotation: 45, minRotation: 30 }
+      time: monthly
+        ? { unit: 'month', displayFormats: { month: narrow ? 'yy/MM' : 'yyyy/MM' }, tooltipFormat: 'yyyy/MM/dd' }
+        : { unit: 'day', displayFormats: { day: narrow ? 'M/d' : 'MMM d' }, tooltipFormat: 'yyyy/MM/dd' },
+      title: axisTitle('記入日'),
+      ticks: xTicksOptions()
     }
   };
 }
@@ -1220,8 +1244,30 @@ function barThicknessFor(timestamps, axis, plotWidthPx) {
   return Math.max(4, thick);
 }
 
+// 日数グラフの棒幅を、描画域の実幅から毎回計算し直す（layout 直後・棒の描画前）。
+// 非表示タブで作ったグラフがタブ表示でサイズ確定した場合や、画面回転でも正しい棒幅になる。
+function barThicknessPlugin(timestamps, axis) {
+  return {
+    id: 'barThickness',
+    afterLayout: function (chart) {
+      var area = chart.chartArea;
+      if (!area) return;
+      var w = area.right - area.left;
+      if (!(w > 0)) return;
+      var px = barThicknessFor(timestamps, axis, w);
+      chart.data.datasets.forEach(function (ds) {
+        if (ds.type === 'bar') ds.barThickness = px;
+      });
+    }
+  };
+}
+
+// グラフに描く最大の来院（記入）回数。患者サマリー・一覧・CSV 等は全件のまま。
+var CHART_MAX_VISITS = 10;
+
 function renderCharts() {
-  var data = getFilteredData().slice().sort(function (a, b) { return (a.sortKey || 0) - (b.sortKey || 0); });
+  var allData = getFilteredData().slice().sort(function (a, b) { return (a.sortKey || 0) - (b.sortKey || 0); });
+  var data = allData;
   var cnt = document.getElementById('record-count');
   cnt.textContent = data.length + '件';
 
@@ -1229,6 +1275,7 @@ function renderCharts() {
   if (!currentPatientKey) {
     document.getElementById('empty-charts').style.display = 'block';
     emptyText.textContent = data.length ? '患者を選択してください（' + patientIndexCache.length + '名 / ' + data.length + '件）。上の患者検索欄をタップ、またはデータ一覧の患者名をタップ' : 'データがありません。QRコードを読み取ってください。';
+    document.getElementById('chart-recent-note').style.display = 'none';
     ['hit6-tab', 'days-tab', 'scatter-tab', 'mibs4-tab'].forEach(function (id) {
       document.getElementById(id).style.display = 'none';
     });
@@ -1237,6 +1284,7 @@ function renderCharts() {
   if (!data.length) {
     document.getElementById('empty-charts').style.display = 'block';
     emptyText.textContent = 'この患者のデータがありません。';
+    document.getElementById('chart-recent-note').style.display = 'none';
     ['hit6-tab', 'days-tab', 'scatter-tab', 'mibs4-tab'].forEach(function (id) {
       document.getElementById(id).style.display = 'none';
     });
@@ -1247,11 +1295,22 @@ function renderCharts() {
     if (p.classList.contains('active')) p.style.display = 'block';
   });
 
-  var timePoints = data.filter(function (r) { return !!r.date; });
+  // グラフは記入日が新しい順に直近 CHART_MAX_VISITS 回分だけ（古い順に並べ直す）。x 範囲・棒幅もこの件数が基準。
+  var datedAll = allData.filter(function (r) { return !!r.date; });
+  var timePoints = P.selectRecentVisits(datedAll, CHART_MAX_VISITS);
+  data = timePoints;
+  var note = document.getElementById('chart-recent-note');
+  if (datedAll.length > CHART_MAX_VISITS) {
+    note.textContent = '直近' + CHART_MAX_VISITS + '回を表示（全' + datedAll.length + '回）';
+    note.style.display = '';
+  } else {
+    note.style.display = 'none';
+  }
   var hit6Points = timePoints.filter(function (r) { return r.hit6 != null; }).map(function (r) { return { x: toTimestamp(r.date), y: r.hit6 }; });
   var mibs4Points = timePoints.filter(function (r) { return r.mibs4 != null; }).map(function (r) { return { x: toTimestamp(r.date), y: r.mibs4 }; });
 
   var pointColor = '#4a6f8e';
+  var narrow = isNarrow();
 
   var allTs = timePoints.map(function (r) { return toTimestamp(r.date); });
   var timeAxis = timeAxisFor(allTs);
@@ -1259,13 +1318,14 @@ function renderCharts() {
   if (chartHit6) chartHit6.destroy();
   chartHit6 = new Chart(document.getElementById('hit6Chart'), {
     type: 'line',
-    data: { datasets: [{ label: 'HIT-6', data: hit6Points, borderColor: pointColor, backgroundColor: pointColor, pointBackgroundColor: pointColor, pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
+    data: { datasets: [{ label: 'HIT-6', data: hit6Points, borderColor: pointColor, backgroundColor: pointColor, pointBackgroundColor: pointColor, pointRadius: narrow ? 4 : 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       parsing: false,
-      plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
-      scales: { x: timeAxis.x, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6' } } },
-      layout: { padding: { top: 24 } }
+      plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: narrow ? 10 : 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
+      scales: { x: timeAxis.x, y: { min: 36, max: 78, title: axisTitle('HIT-6'), ticks: { font: { size: narrow ? 10 : 12 } } } },
+      layout: { padding: { top: narrow ? 18 : 24 } }
     },
     plugins: [ChartDataLabels, bandPlugin(HIT6_BANDS)]
   });
@@ -1273,13 +1333,14 @@ function renderCharts() {
   if (chartMibs4) chartMibs4.destroy();
   chartMibs4 = new Chart(document.getElementById('mibs4Chart'), {
     type: 'line',
-    data: { datasets: [{ label: 'MIBS-4', data: mibs4Points, borderColor: '#4f9d6b', backgroundColor: '#4f9d6b', pointBackgroundColor: '#4f9d6b', pointRadius: 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
+    data: { datasets: [{ label: 'MIBS-4', data: mibs4Points, borderColor: '#4f9d6b', backgroundColor: '#4f9d6b', pointBackgroundColor: '#4f9d6b', pointRadius: narrow ? 4 : 6, pointHoverRadius: 9, borderWidth: 2, tension: 0.15, fill: false, spanGaps: true }] },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       parsing: false,
-      plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
-      scales: { x: timeAxis.x, y: { min: 0, max: 12, title: { display: true, text: 'MIBS-4' } } },
-      layout: { padding: { top: 24 } }
+      plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'top', offset: 4, color: '#333', font: { size: narrow ? 10 : 12, weight: 'bold' }, formatter: function (v) { return v != null ? v.y : ''; } } },
+      scales: { x: timeAxis.x, y: { min: 0, max: 12, title: axisTitle('MIBS-4'), ticks: { font: { size: narrow ? 10 : 12 } } } },
+      layout: { padding: { top: narrow ? 18 : 24 } }
     },
     plugins: [ChartDataLabels, bandPlugin(MIBS4_BANDS)]
   });
@@ -1297,32 +1358,37 @@ function renderCharts() {
         { type: 'bar', label: '頭痛日', data: timePoints.map(function (r) { return r.mhd; }), backgroundColor: 'rgba(232,132,42,0.75)', barThickness: barPx, maxBarThickness: 20, stack: 'days' },
         { type: 'bar', label: 'スッキリせず', data: timePoints.map(function (r) { return r.notClearDays; }), backgroundColor: 'rgba(212,172,13,0.75)', barThickness: barPx, maxBarThickness: 20, stack: 'days' },
         { type: 'bar', label: 'スッキリ', data: timePoints.map(function (r) { return r.clearDays; }), backgroundColor: 'rgba(79,157,107,0.75)', barThickness: barPx, maxBarThickness: 20, stack: 'days' },
-        { type: 'line', label: '服薬日(MMD)', data: timePoints.map(function (r) { return r.mmd; }), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 5, borderWidth: 2, yAxisID: 'y' }
+        { type: 'line', label: '服薬日(MMD)', data: timePoints.map(function (r) { return r.mmd; }), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: narrow ? 3 : 5, borderWidth: 2, yAxisID: 'y' }
       ]
     },
     options: {
       responsive: true,
-      plugins: { legend: { position: 'top' }, datalabels: { display: false } },
-      scales: { x: timeAxis.x, y: { min: 0, max: 28, stacked: true, title: { display: true, text: '日数' } } },
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: narrow ? 10 : 40, boxHeight: narrow ? 10 : undefined, padding: narrow ? 8 : 10, font: { size: narrow ? 10 : 12 } } },
+        datalabels: { display: false }
+      },
+      scales: { x: timeAxis.x, y: { min: 0, max: 28, stacked: true, title: axisTitle('日数'), ticks: { font: { size: narrow ? 10 : 12 } } } },
       layout: { padding: { top: 10 } }
     },
-    plugins: [medLine10Plugin()]
+    plugins: [medLine10Plugin(), barThicknessPlugin(allTs, timeAxis)]
   });
 
   if (chartScatter) chartScatter.destroy();
   var scatterData = data.filter(function (r) { return r.hit6 != null && r.mibs4 != null; }).map(function (r) { return { x: r.mibs4, y: r.hit6, date: r.date }; });
   chartScatter = new Chart(document.getElementById('scatterChart'), {
     type: 'scatter',
-    data: { datasets: [{ label: 'HIT-6 × MIBS-4', data: scatterData, backgroundColor: pointColor, pointRadius: 7, pointHoverRadius: 10 }] },
+    data: { datasets: [{ label: 'HIT-6 × MIBS-4', data: scatterData, backgroundColor: pointColor, pointRadius: narrow ? 5 : 7, pointHoverRadius: 10 }] },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        datalabels: { align: 'right', anchor: 'end', offset: 6, color: '#555', font: { size: 10 }, formatter: function (v, ctx) { var pt = ctx.dataset.data[ctx.dataIndex]; return (pt.date || '') ; } },
+        datalabels: { align: 'right', anchor: 'end', offset: 6, color: '#555', font: { size: narrow ? 9 : 10 }, formatter: function (v, ctx) { var pt = ctx.dataset.data[ctx.dataIndex]; var d = pt.date || ''; return narrow ? d.replace(/^\d{2}/, '') : d; } },
         tooltip: { callbacks: { label: function (ctx) { var pt = ctx.raw; return (pt.date || '') + ' — MIBS-4: ' + pt.x + ', HIT-6: ' + pt.y; } } }
       },
-      scales: { x: { min: 0, max: 12, title: { display: true, text: 'MIBS-4' } }, y: { min: 36, max: 78, title: { display: true, text: 'HIT-6' } } },
-      layout: { padding: { top: 20, right: 40 } }
+      scales: { x: { min: 0, max: 12, title: axisTitle('MIBS-4'), ticks: { font: { size: narrow ? 10 : 12 } } }, y: { min: 36, max: 78, title: axisTitle('HIT-6'), ticks: { font: { size: narrow ? 10 : 12 } } } },
+      layout: { padding: { top: 20, right: narrow ? 44 : 40 } }
     },
     plugins: [ChartDataLabels]
   });
@@ -1335,6 +1401,15 @@ function switchTab(tabId, btn) {
   var panel = document.getElementById(tabId);
   panel.classList.add('active');
   panel.style.display = 'block';
+  // 非表示中に描画されたグラフは表示後に実寸へ合わせ直す（日数グラフは afterLayout で棒幅も再計算される）。
+  var cv = panel.querySelector('canvas');
+  var ch = cv && Chart.getChart(cv);
+  if (ch) { ch.resize(); ch.update('none'); }
+}
+
+// 画面幅がスマホ幅の境界をまたいだら（回転・ウィンドウ変更）、見た目設定を切り替えて描き直す。
+if (NARROW_MQ && NARROW_MQ.addEventListener) {
+  NARROW_MQ.addEventListener('change', function () { if (typeof renderCharts === 'function' && currentPatientKey) renderCharts(); });
 }
 
 // ===== CSV =====

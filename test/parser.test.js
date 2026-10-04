@@ -453,3 +453,16 @@ test('migrateRecord: editedAt 付きの記録は空にした値を rawText か�
   delete legacy.editedAt;
   assert.equal(P.migrateRecord(legacy).note, '自由記述（任意、複数行あり得る）');
 });
+
+test('selectRecentVisits: 記入日が新しい順に直近 n 件を古い順で返す。日付なしは除外。元配列は不変', () => {
+  const mk = (d) => ({ date: d ? `2026/${String(d).padStart(2, '0')}/01` : null, sortKey: d ? 20260000 + d * 100 + 1 : 0, id: 'r' + d });
+  const input = [mk(5), mk(1), mk(12), mk(null), mk(3), mk(9), mk(7)];
+  const copy = input.slice();
+  const out = P.selectRecentVisits(input, 4);
+  assert.deepEqual(out.map(r => r.id), ['r7', 'r9', 'r12', 'r5'].sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10)));
+  assert.deepEqual(out.map(r => r.id), ['r5', 'r7', 'r9', 'r12']);
+  assert.deepEqual(input, copy);
+  assert.equal(P.selectRecentVisits(input, 10).length, 6);
+  assert.deepEqual(P.selectRecentVisits([], 10), []);
+  assert.deepEqual(P.selectRecentVisits(input, 0), []);
+});
