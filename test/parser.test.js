@@ -203,22 +203,38 @@ test('migrateRecord は版行なしの保存済みレコードを拒否せず補
 
 // ===== デモデータ =====
 const DEMO_EXPECT = {
-  months: ['2025/12/15', '2026/01/15', '2026/02/15', '2026/03/15', '2026/04/15', '2026/05/15', '2026/06/15', '2026/07/15', '2026/08/15', '2026/09/15'],
-  mhd:  [15, 13, 12, 10, 9, 7, 6, 5, 4, 12],
-  mmd:  [12, 11, 10, 8, 7, 6, 5, 4, 3, 10],
-  hit6: [66, 64, 62, 60, 58, 55, 52, 50, 48, 62],
-  mibs4: [9, 8, 7, 6, 5, 4, 3, 2, 2, 7]
+  months: ['2025/12/13', '2026/01/17', '2026/02/14', '2026/03/14', '2026/04/18', '2026/05/16', '2026/06/13', '2026/07/18', '2026/08/22', '2026/09/19'],
+  mhd:  [16, 14, 15, 11, 12, 9, 7, 8, 5, 13],
+  mmd:  [13, 12, 12, 9, 10, 7, 5, 6, 3, 11],
+  hit6: [67, 64, 65, 59, 61, 56, 52, 54, 48, 63],
+  mibs4: [10, 9, 9, 6, 7, 5, 3, 4, 2, 8]
 };
 
-test('buildDemoTexts: 10件・毎月15日・昇順・版行は引数どおり', () => {
+test('buildDemoTexts: 10件・毎月1回（月が連続）・昇順・版行は引数どおり', () => {
   const texts = P.buildDemoTexts('v9.9.9');
   assert.equal(texts.length, 10);
   const recs = texts.map(t => P.parseQrText(t));
   assert.deepEqual(recs.map(r => r.date), DEMO_EXPECT.months);
-  recs.forEach(r => assert.equal(r.date.slice(8), '15'));
   for (let i = 1; i < recs.length; i++) assert.ok(recs[i].sortKey > recs[i - 1].sortKey);
+  // 各月 1 回で月が連続（2025/12 から 2026/09 まで）
+  const ym = recs.map(r => { const [y, m] = r.date.split('/').map(Number); return y * 12 + m; });
+  for (let i = 1; i < ym.length; i++) assert.equal(ym[i] - ym[i - 1], 1);
+  // 日付は固定日ではなくばらつく
+  assert.ok(new Set(recs.map(r => r.date.slice(8))).size >= 5);
   texts.forEach(t => assert.equal(P.parseAppVersion(t), 'v9.9.9'));
   assert.equal(P.parseAppVersion(P.buildDemoTexts('v1.3.0')[0]), 'v1.3.0');
+});
+
+test('buildDemoTexts: 経過は単調でなく、最終月は前月より悪化', () => {
+  const recs = P.buildDemoTexts('v1.5.0').map(t => P.parseQrText(t));
+  let ups = 0;
+  for (let i = 1; i < recs.length; i++) if (recs[i].hit6 > recs[i - 1].hit6) ups++;
+  assert.ok(ups >= 2, 'HIT-6 が前月より上がる月が2回以上ある');
+  const last = recs[recs.length - 1], prev = recs[recs.length - 2];
+  assert.ok(last.hit6 > prev.hit6);
+  assert.ok(last.mibs4 > prev.mibs4);
+  assert.ok(last.mhd > prev.mhd);
+  assert.ok(recs[0].hit6 > prev.hit6, '全体としては初回より改善');
 });
 
 test('buildDemoTexts: 同一の架空患者（DEMO / デモ 患者 / 1985/4/1 / 女 / デモ）', () => {

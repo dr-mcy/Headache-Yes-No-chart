@@ -40,6 +40,7 @@ h1{text-align:center;font-size:20px;margin:10px 0 2px;color:#4a6fa5}
 .patient-current{font-size:13px;color:#4a6fa5;font-weight:bold}
 .patient-suggestions{position:absolute;left:0;top:calc(100% + 2px);width:100%;max-width:420px;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:50}
 .patient-suggestions.hidden{display:none}
+.patient-link{color:#4a6fa5;text-decoration:underline;cursor:pointer}
 .patient-suggestions .sugg-item{padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0}
 .patient-suggestions .sugg-item:hover{background:#eef2f7}
 .patient-suggestions .sugg-empty{padding:8px 10px;font-size:12px;color:#999}
@@ -160,7 +161,7 @@ table.data-table tr:hover{background:#eef2f7}
     <div class="patient-search-wrap">
       <div class="patient-search-row">
         <label style="font-size:13px">患者検索:</label>
-        <input type="text" id="patient-search" placeholder="病院ID または 氏名で検索" oninput="onPatientSearchInput()" onfocus="onPatientSearchInput()">
+        <input type="text" id="patient-search" placeholder="病院ID または 氏名で検索" oninput="onPatientSearchInput()" onfocus="onPatientSearchInput()" onclick="onPatientSearchInput()">
         <button class="btn btn-secondary btn-sm" onclick="clearPatientSelection()">選択解除</button>
         <span id="record-count" style="font-size:12px;color:#888"></span>
       </div>
@@ -339,7 +340,7 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 // ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
-var APP_VERSION = 'v1.4.0';
+var APP_VERSION = 'v1.5.0';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 var DB_NAME = 'headache_db';
@@ -962,22 +963,24 @@ var patientIndexCache = []; // [{key,label,count}]
 function rebuildPatientIndex(data) {
   var map = {};
   data.forEach(function (r) {
-    if (!map[r.patientKey]) map[r.patientKey] = { key: r.patientKey, label: P.patientLabel(r) + (r.isDemo ? ' [デモ]' : ''), count: 0 };
+    if (!map[r.patientKey]) map[r.patientKey] = { key: r.patientKey, label: P.patientLabel(r) + (r.isDemo ? ' [デモ]' : ''), count: 0, lastSortKey: 0 };
     map[r.patientKey].count++;
+    if ((r.sortKey || 0) > map[r.patientKey].lastSortKey) map[r.patientKey].lastSortKey = r.sortKey || 0;
   });
-  return Object.keys(map).map(function (k) { return map[k]; });
+  // 最終記入日の新しい順（空欄フォーカス時の候補表示用）
+  return Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) { return b.lastSortKey - a.lastSortKey; });
 }
 
 function onPatientSearchInput() {
   var q = document.getElementById('patient-search').value.trim();
   var box = document.getElementById('patient-suggestions');
-  if (!q) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   var ql = q.toLowerCase();
+  // 検索欄が空のときは全患者（最終記入日の新しい順、最大30件）を候補に出す
   var matches = patientIndexCache.filter(function (p) {
-    return p.label.toLowerCase().indexOf(ql) >= 0;
+    return !ql || p.label.toLowerCase().indexOf(ql) >= 0;
   }).slice(0, 30);
   if (!matches.length) {
-    box.innerHTML = '<div class="sugg-empty">該当する患者がいません</div>';
+    box.innerHTML = '<div class="sugg-empty">' + (ql ? '該当する患者がいません' : '患者がいません（QRコードを読み取ってください）') + '</div>';
   } else {
     box.innerHTML = matches.map(function (p) {
       return '<div class="sugg-item" data-key="' + P.escapeHtml(p.key) + '">' + P.escapeHtml(p.label) + ' <span style="color:#aaa">(' + p.count + '件)</span></div>';
@@ -1067,7 +1070,7 @@ function renderTable() {
     var warn = (sum != null && sum > 28) ? ' <span class="warn-flag" title="内訳合計が28日を超えています">&#x26A0;</span>' : '';
     return '<tr>' +
       '<td>' + P.escapeHtml(r.date || '-') + (r.editedAt ? '<span class="edited-badge" title="編集済み（' + P.escapeHtml(formatDateTime(r.editedAt)) + '）">編集</span>' : '') + '</td>' +
-      '<td>' + P.escapeHtml(P.patientLabel(r)) + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</td>' +
+      '<td><span class="patient-link" role="button" tabindex="0" title="タップでこの患者のグラフを表示" data-key="' + P.escapeHtml(r.patientKey) + '">' + P.escapeHtml(P.patientLabel(r)) + '</span>' + (r.isDemo ? '<span class="demo-badge">デモ</span>' : '') + '</td>' +
       '<td>' + (r.mhd != null ? r.mhd : '-') + warn + '</td>' +
       '<td>' + (r.mmd != null ? r.mmd : '-') + '</td>' +
       '<td>' + (r.hit6 != null ? r.hit6 + '点 ' + verdictBadge(r.hit6, 'hit6') : '-') + '</td>' +
@@ -1188,7 +1191,7 @@ function renderCharts() {
   var emptyText = document.getElementById('empty-charts-text');
   if (!currentPatientKey) {
     document.getElementById('empty-charts').style.display = 'block';
-    emptyText.textContent = data.length ? '患者を選択してください（' + patientIndexCache.length + '名 / ' + data.length + '件）' : 'データがありません。QRコードを読み取ってください。';
+    emptyText.textContent = data.length ? '患者を選択してください（' + patientIndexCache.length + '名 / ' + data.length + '件）。上の患者検索欄をタップ、またはデータ一覧の患者名をタップ' : 'データがありません。QRコードを読み取ってください。';
     ['hit6-tab', 'days-tab', 'scatter-tab', 'mibs4-tab'].forEach(function (id) {
       document.getElementById(id).style.display = 'none';
     });
@@ -1586,6 +1589,20 @@ function refreshAll() {
     fmUpdateStatusUI();
   }).catch(function (err) { reportWriteError(err, '読み込み'); });
 }
+
+// データ一覧の患者名タップ → その患者を選択してグラフ欄までスクロール
+function onPatientLinkActivate(e) {
+  var el = e.target.closest ? e.target.closest('.patient-link') : null;
+  if (!el) return;
+  if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  selectPatient(el.getAttribute('data-key'));
+  var target = document.getElementById('summary-card');
+  if (!target || target.style.display === 'none') target = document.getElementById('charts-card');
+  if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+document.getElementById('data-tbody').addEventListener('click', onPatientLinkActivate);
+document.getElementById('data-tbody').addEventListener('keydown', onPatientLinkActivate);
 
 document.addEventListener('click', function (e) {
   var box = document.getElementById('patient-suggestions');

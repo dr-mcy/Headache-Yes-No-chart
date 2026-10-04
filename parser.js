@@ -448,20 +448,21 @@
   }
 
   // ===== デモデータ（架空・固定） =====
-  // 病院ID DEMO の架空患者。毎月15日来院 2025/12/15〜2026/09/15 の10回分。
-  // 頭痛が徐々に改善し、最後の回で悪化する。回答は HIT6_PT / MIBS4_PT で合計が点数になる組。
+  // 病院ID DEMO の架空患者。毎月1回来院（日付は実際の外来らしくばらつく）2025/12/13〜2026/09/19 の10回分。
+  // 一直線ではなく、全体は改善傾向だが山あり谷あり（2月・4月・7月に一時悪化）で、最後の回で大きく悪化する。
+  // 回答は HIT6_PT / MIBS4_PT で合計が点数になる組。4つの日数の合計は28以下（記入漏れ日があるのが自然）。
   var DEMO_HOSPITAL_ID = 'DEMO';
   var DEMO_ROWS = [
-    { date: '2025/12/15', mhd: 15, mmd: 12, nc: 8, hit: [4, 3, 5, 3, 4, 4], mibs: [5, 6, 4, 3], note: '' },
-    { date: '2026/01/15', mhd: 13, mmd: 11, nc: 7, hit: [3, 3, 5, 3, 3, 4], mibs: [5, 4, 4, 3], note: '' },
-    { date: '2026/02/15', mhd: 12, mmd: 10, nc: 6, hit: [3, 3, 4, 3, 3, 4], mibs: [5, 4, 3, 3], note: '予防薬を開始。' },
-    { date: '2026/03/15', mhd: 10, mmd: 8, nc: 5, hit: [2, 3, 4, 3, 3, 4], mibs: [4, 4, 3, 3], note: '' },
-    { date: '2026/04/15', mhd: 9, mmd: 7, nc: 4, hit: [2, 2, 4, 3, 3, 4], mibs: [4, 3, 3, 3], note: '' },
-    { date: '2026/05/15', mhd: 7, mmd: 6, nc: 3, hit: [2, 2, 4, 2, 3, 3], mibs: [4, 3, 3, 2], note: '朝方の頭痛が減った。' },
-    { date: '2026/06/15', mhd: 6, mmd: 5, nc: 2, hit: [2, 2, 3, 2, 2, 3], mibs: [3, 3, 3, 2], note: '' },
-    { date: '2026/07/15', mhd: 5, mmd: 4, nc: 2, hit: [2, 2, 3, 2, 2, 2], mibs: [3, 3, 2, 2], note: '' },
-    { date: '2026/08/15', mhd: 4, mmd: 3, nc: 1, hit: [1, 2, 3, 2, 2, 2], mibs: [3, 2, 3, 2], note: '' },
-    { date: '2026/09/15', mhd: 12, mmd: 10, nc: 6, hit: [4, 3, 4, 3, 3, 3], mibs: [5, 4, 4, 2], note: '仕事が忙しく睡眠不足だった。' }
+    { date: '2025/12/13', mhd: 16, mmd: 13, nc: 7, clear: 4, hit: [4, 4, 5, 4, 4, 3], mibs: [5, 6, 4, 4], note: '初診。市販薬を週3回以上使用。' },
+    { date: '2026/01/17', mhd: 14, mmd: 12, nc: 8, clear: 4, hit: [4, 3, 4, 4, 3, 4], mibs: [5, 4, 5, 3], note: '' },
+    { date: '2026/02/14', mhd: 15, mmd: 12, nc: 6, clear: 6, hit: [4, 3, 5, 4, 3, 3], mibs: [5, 5, 4, 3], note: '寒い日に頭痛が増えた。' },
+    { date: '2026/03/14', mhd: 11, mmd: 9, nc: 5, clear: 10, hit: [2, 3, 4, 3, 3, 3], mibs: [4, 3, 5, 2], note: '予防薬を開始。' },
+    { date: '2026/04/18', mhd: 12, mmd: 10, nc: 6, clear: 9, hit: [3, 3, 5, 3, 3, 2], mibs: [5, 3, 4, 3], note: '' },
+    { date: '2026/05/16', mhd: 9, mmd: 7, nc: 4, clear: 13, hit: [3, 2, 3, 3, 3, 2], mibs: [4, 3, 4, 2], note: '' },
+    { date: '2026/06/13', mhd: 7, mmd: 5, nc: 3, clear: 17, hit: [2, 2, 3, 2, 3, 2], mibs: [4, 2, 3, 2], note: '' },
+    { date: '2026/07/18', mhd: 8, mmd: 6, nc: 4, clear: 14, hit: [2, 2, 3, 3, 3, 2], mibs: [4, 3, 3, 2], note: '梅雨時に少し悪化。' },
+    { date: '2026/08/22', mhd: 5, mmd: 3, nc: 2, clear: 21, hit: [2, 1, 3, 2, 2, 2], mibs: [3, 2, 3, 2], note: '' },
+    { date: '2026/09/19', mhd: 13, mmd: 11, nc: 6, clear: 9, hit: [3, 3, 4, 4, 4, 3], mibs: [5, 3, 4, 4], note: '仕事が繁忙期で睡眠不足。' }
   ];
 
   function sumPoints(answers, table) {
@@ -469,12 +470,11 @@
   }
 
   // ①(Headache-Yes-No)の buildQrText と同じ形式のQRテキストを10件、記入日の昇順で返す。
-  // 4つの日数の合計は必ず28。点数・判定は回答から計算する。
+  // 頭痛+スッキリせず+スッキリは28以下。点数・判定は回答から計算する。
   function buildDemoTexts(appVersion) {
     return DEMO_ROWS.map(function (r) {
       var h = sumPoints(r.hit, HIT6_PT);
       var m = sumPoints(r.mibs, MIBS4_PT);
-      var clear = 28 - r.mhd - r.nc;
       var lines = [
         '頭痛チェックシート',
         'バージョン: ' + appVersion,
@@ -488,7 +488,7 @@
         '頭痛があった日: ' + r.mhd + '日',
         '痛み止め服用日: ' + r.mmd + '日',
         'スッキリせず: ' + r.nc + '日',
-        'スッキリ: ' + clear + '日',
+        'スッキリ: ' + r.clear + '日',
         '【HIT-6】 ' + h + '点 ' + hit6Verdict(h),
         '回答: ' + r.hit.join(','),
         '【MIBS-4】 ' + m + '点 ' + mibs4Verdict(m),
