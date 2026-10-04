@@ -7,6 +7,7 @@
  * ①(Headache-Yes-No)の buildQrText() が出力するテキスト形式に対応する。
  * 参照した buildQrText の出力例:
  *   頭痛チェックシート
+ *   バージョン: v1.2.0     (①②は同一バージョンで揃える。②は不一致の QR を登録しない)
  *   記入日: 2026/09/27
  *   生年月日: 1980/5/3
  *   氏名: ...
@@ -205,6 +206,13 @@
     return s;
   }
 
+  // "バージョン: v1.2.0"（全角コロン・前後空白可）の行から版文字列を返す。無ければ null。
+  // ①(Headache-Yes-No)と②(本アプリ)は同一バージョンでないと登録できない運用のための判定用。
+  function parseAppVersion(text) {
+    var m = normalizeText(text).match(/^[ \t　]*バージョン[ \t　]*[:：][ \t　]*(v\d+(?:\.\d+)*)[ \t　]*$/m);
+    return m ? m[1] : null;
+  }
+
   function parseQrText(text) {
     var norm = normalizeText(text);
     var d = {};
@@ -364,6 +372,7 @@
     extractNote: extractNote,
     patientKey: patientKey,
     patientLabel: patientLabel,
+    parseAppVersion: parseAppVersion,
     parseQrText: parseQrText,
     migrateRecord: migrateRecord,
     FM_CONTRACT_VERSION: FM_CONTRACT_VERSION,

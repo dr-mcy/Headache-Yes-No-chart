@@ -149,3 +149,54 @@ test('migrateRecord は rawText から欠損フィールドを補完する', () 
   assert.equal(migrated.patientKey, 'hid:H-0001');
   assert.equal(migrated.id, 'legacy1');
 });
+
+// ===== バージョン行（①②同一バージョン運用）=====
+const VERSIONED_SAMPLE = FULL_SAMPLE.replace('頭痛チェックシート\n', '頭痛チェックシート\nバージョン: v1.2.0\n');
+
+test('parseAppVersion: 版行ありなら v1.2.0 形式を返す', () => {
+  assert.equal(P.parseAppVersion(VERSIONED_SAMPLE), 'v1.2.0');
+});
+
+test('parseAppVersion: 全角コロン・前後空白を許容する', () => {
+  assert.equal(P.parseAppVersion('頭痛チェックシート\nバージョン：v1.2.0'), 'v1.2.0');
+  assert.equal(P.parseAppVersion('頭痛チェックシート\n  バージョン :  v1.2.0  \n記入日: 2026/09/27'), 'v1.2.0');
+  assert.equal(P.parseAppVersion('頭痛チェックシート\r\nバージョン: v1.2.0\r\n記入日: 2026/09/27'), 'v1.2.0');
+});
+
+test('parseAppVersion: 版行なし・不正形式は null', () => {
+  assert.equal(P.parseAppVersion(FULL_SAMPLE), null);
+  assert.equal(P.parseAppVersion(''), null);
+  assert.equal(P.parseAppVersion(null), null);
+  assert.equal(P.parseAppVersion('頭痛チェックシート\nバージョン: abc'), null);
+  // 備考など行頭以外の「バージョン:」は拾わない
+  assert.equal(P.parseAppVersion('頭痛チェックシート\n【備考】 バージョン: v1.2.0'), null);
+});
+
+test('parseAppVersion: 別版はそのまま返す（一致判定は呼び出し側）', () => {
+  assert.equal(P.parseAppVersion('頭痛チェックシート\nバージョン: v1.1.1'), 'v1.1.1');
+  assert.equal(P.parseAppVersion('頭痛チェックシート\nバージョン: v1.10.0'), 'v1.10.0');
+});
+
+test('版行入りテキストでも parseQrText の既存項目が従来どおり取れる', () => {
+  const base = P.parseQrText(FULL_SAMPLE);
+  const r = P.parseQrText(VERSIONED_SAMPLE);
+  for (const k of Object.keys(base)) {
+    if (k === 'rawText' || k === 'id') continue;
+    assert.deepEqual(r[k], base[k], k);
+  }
+  assert.equal(r.date, '2026/09/27');
+  assert.equal(r.name, 'テスト 太郎');
+  assert.equal(r.patientKey, 'hid:H-0001');
+  assert.deepEqual(r.hit6Answers, [1, 2, 3, 4, 5, 3]);
+  assert.deepEqual(r.mibs4Answers, [1, 2, 3, 4]);
+  // 版行が他フィールド（氏名・備考など）に混入しない
+  assert.ok(!/バージョン/.test(r.note));
+  assert.equal(r.doctor, 'テスト医師');
+});
+
+test('migrateRecord は版行なしの保存済みレコードを拒否せず補完できる', () => {
+  const rec = { rawText: FULL_SAMPLE, date: '2026/09/27', sortKey: 20260927, patientKey: 'hid:H-0001' };
+  const m = P.migrateRecord(rec);
+  assert.equal(m.mhd, 5);
+  assert.equal(m.date, '2026/09/27');
+});
