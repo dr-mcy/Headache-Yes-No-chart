@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#4a6fa5">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>頭痛チェック グラフビューア</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -347,7 +351,7 @@ table.data-table tr:hover{background:#eef2f7}
 
 <script>
 // ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
-var APP_VERSION = 'v1.7.0';
+var APP_VERSION = 'v1.8.0';
 document.getElementById('app-version').textContent = APP_VERSION;
 
 var DB_NAME = 'headache_db';
