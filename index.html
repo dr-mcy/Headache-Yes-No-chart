@@ -616,42 +616,90 @@ function isContinuous() {
   return cb ? cb.checked : true;
 }
 
+// 高密度QR(version 12-17, 350-500byte)向け設定。
+// - QR_CODE のみ走査(全フォーマット走査より速く誤検出も減る)
+// - BarcodeDetector が使える環境(Chrome系)ではネイティブ検出を使う
+function createQrScanner(elementId) {
+  return new Html5Qrcode(elementId, {
+    formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    verbose: false
+  });
+}
+
+// 走査領域はビューファインダー短辺の約85%(最小250px、ビューファインダーに収まる範囲)。
+// html5-qrcode はこの qrbox のサイズ(CSS px)の canvas に映像を縮小して復号するため、
+// 領域が大きいほど1 moduleあたりの画素数が増える。
+function computeQrbox(viewfinderWidth, viewfinderHeight) {
+  var shortSide = Math.min(viewfinderWidth, viewfinderHeight);
+  var size = Math.floor(shortSide * 0.85);
+  if (size < 250) size = 250;
+  if (size > viewfinderWidth) size = Math.floor(viewfinderWidth);
+  return { width: size, height: size };
+}
+
 function startLiveCamera() {
   if (scannerRunning) return;
   var statusEl = document.getElementById('scanner-status');
   statusEl.textContent = 'カメラを起動中...';
   document.getElementById('live-camera-btn').style.display = 'none';
 
-  html5QrCode = new Html5Qrcode('qr-reader');
+  function onSuccess(decodedText) {
+    var now = Date.now();
+    if (decodedText === lastScanText && (now - lastScanAt) < DEDUPE_MS) return;
+    lastScanText = decodedText; lastScanAt = now;
+    if (isContinuous()) {
+      addRecord(decodedText, { keepScannerOpen: true });
+    } else {
+      stopLiveCamera(function () {
+        closeScanner();
+        addRecord(decodedText, {});
+      });
+    }
+  }
 
-  html5QrCode.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-    function onSuccess(decodedText) {
-      var now = Date.now();
-      if (decodedText === lastScanText && (now - lastScanAt) < DEDUPE_MS) return;
-      lastScanText = decodedText; lastScanAt = now;
-      if (isContinuous()) {
-        addRecord(decodedText, { keepScannerOpen: true });
-      } else {
-        stopLiveCamera(function () {
-          closeScanner();
-          addRecord(decodedText, {});
-        });
-      }
-    },
-    function onError() {}
-  ).then(function () {
+  function onStarted() {
     scannerRunning = true;
     statusEl.textContent = 'QRコードをかざしてください';
     document.getElementById('continuous-row').style.display = 'flex';
-  }).catch(function (err) {
+  }
+
+  function onFailed(err) {
     scannerRunning = false;
     statusEl.textContent = 'カメラを起動できませんでした。画像選択をお使いください。';
     document.getElementById('live-camera-btn').style.display = '';
     document.getElementById('live-camera-btn').textContent = '❗ カメラ起動失敗 - 再試行';
     console.error('Camera start error:', err);
-  });
+  }
+
+  // highRes=true: 1920x1080 を要求(videoConstraints 指定時、html5-qrcode は第1引数を使わず
+  // videoConstraints をそのまま getUserMedia に渡し、aspectRatio は未指定なら適用しない)。
+  // 起動に失敗したら従来の { facingMode: 'environment' } で1回だけ再試行する。
+  function attempt(highRes) {
+    html5QrCode = createQrScanner('qr-reader');
+    var config = { fps: 10, qrbox: computeQrbox };
+    if (highRes) {
+      config.videoConstraints = {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      };
+    }
+    html5QrCode.start({ facingMode: 'environment' }, config, onSuccess, function () {})
+      .then(onStarted)
+      .catch(function (err) {
+        var denied = /NotAllowed|Permission/i.test(String(err));
+        if (highRes && !denied) {
+          console.warn('High-res camera start failed, retrying with default constraints:', err);
+          try { html5QrCode.clear(); } catch (e) {}
+          html5QrCode = null;
+          attempt(false);
+        } else {
+          onFailed(err);
+        }
+      });
+  }
+  attempt(true);
 }
 
 function stopLiveCamera(callback) {
@@ -689,7 +737,7 @@ function onFileSelected(event) {
   var statusEl = document.getElementById('scanner-status');
   statusEl.textContent = '画像を解析中...';
 
-  var reader = new Html5Qrcode('qr-reader-file-tmp');
+  var reader = createQrScanner('qr-reader-file-tmp');
   reader.scanFile(file, true)
     .then(function (decodedText) {
       statusEl.textContent = '';
