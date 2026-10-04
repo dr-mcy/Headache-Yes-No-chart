@@ -122,7 +122,7 @@ table.data-table tr:hover{background:#eef2f7}
 <body>
 <div class="container">
   <h1>&#x1F4CA; 頭痛チェック グラフビューア</h1>
-  <div class="version">v1.1.0</div>
+  <div class="version" id="app-version"></div>
   <p class="subtitle">Headache-Yes-No QRコードを読み取り、HIT-6 / MIBS-4 / MHD / MMD を可視化</p>
 
   <div class="storage-warning hidden no-print" id="storage-warning"></div>
@@ -308,6 +308,10 @@ table.data-table tr:hover{background:#eef2f7}
 <div class="toast no-print" id="toast"></div>
 
 <script>
+// ①(Headache-Yes-No)と同じバージョンで揃える。版の定義はここ1か所のみ（画面表示もここから埋める）。
+var APP_VERSION = 'v1.2.0';
+document.getElementById('app-version').textContent = APP_VERSION;
+
 var DB_NAME = 'headache_db';
 var DB_VERSION = 2;
 var STORE = 'records';
@@ -808,6 +812,17 @@ function addRecord(text, opts) {
     showToast('頭痛チェックシートのQRではありません', 'error');
     return;
   }
+  // 新規登録時のみ、①(頭痛チェックシート)とバージョンが完全一致しないQRは登録しない。
+  // 保存済みレコードの再parse・バックアップ復元・IndexedDB移行はここを通らないので対象外。
+  var qrVersion = P.parseAppVersion(text);
+  if (qrVersion !== APP_VERSION) {
+    if (qrVersion === null) {
+      showToast('このQRコードは旧バージョンの頭痛チェックシートで作成されています（ビューア ' + APP_VERSION + '）。チェックシートを再読み込みして作り直してください。', 'error', 7000);
+    } else {
+      showToast('バージョンが一致しません（QR: ' + qrVersion + ' / ビューア: ' + APP_VERSION + '）。両方のページを再読み込みしてください。', 'error', 7000);
+    }
+    return;
+  }
   var rec = P.parseQrText(text);
   if (!rec.date) {
     openDateFix(rec, text, opts);
@@ -928,11 +943,11 @@ function getFilteredData() {
   return allRecordsCache.filter(function (r) { return r.patientKey === currentPatientKey; });
 }
 
-function showToast(msg, type) {
+function showToast(msg, type, ms) {
   var t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast toast-' + type + ' show';
-  setTimeout(function () { t.className = 'toast'; }, 2500);
+  setTimeout(function () { t.className = 'toast'; }, ms || 2500);
 }
 
 var tableOpen = false;
